@@ -25,15 +25,9 @@ struct stabent {
     char name[MAX_NAME + 1];        // symbol name
     enum storclas sc;               // storage class
     struct codenode *exdef;         // if extrn and we have a definition
-            
-
     // if AUTO, offset into stack
     // if INTERNAL, offset into code
     int offset;
-    // if string constant, string value
-    char *strcon;
-    // if not string, how many words?
-    unsigned size;
 };
 
 struct constant {
@@ -42,6 +36,14 @@ struct constant {
         char *strcon;
         unsigned intcon;
     } v;
+};
+
+struct ival {
+    int isconst;
+    union {
+        struct constant con;
+        struct stabent *name;
+    } v; 
 };
 
 enum codeop {
@@ -55,7 +57,7 @@ struct codenode {
     enum codeop op;
     union {
         char name[MAX_NAME+1];
-        struct constant ival;
+        struct ival ival;
         unsigned rept;
     } arg;
 };
@@ -70,9 +72,13 @@ static int line = 1;
 static int errf = 0;
 static int currch = '\n';
 static struct stabent *global;
+static struct stabent *local;
 
 static void program(struct codefrag *prog);
 static void definition(struct codefrag *prog);
+static void funcdef(struct codefrag *prog);
+static void funcparms(void);
+static void statement(struct codefrag *prog);
 static void datadef(struct codefrag *prog);
 static void constant(struct constant *con);
 static void charcon(struct constant *con);
@@ -114,6 +120,8 @@ main(int argc, char **argv)
     cfprint(&prog);
 }
 
+// Parse the whole program
+// 
 void 
 program(struct codefrag *prog)
 {
@@ -127,6 +135,8 @@ program(struct codefrag *prog)
     }
 }
 
+// Parse a definition
+//
 void
 definition(struct codefrag *prog)
 {
@@ -134,7 +144,6 @@ definition(struct codefrag *prog)
     int here = line;
     struct codenode *cn = cnalloc();
     struct stabent *sym;
-
 
     cn->op = TNAMDEF;
     strcpy(cn->arg.name, name());
@@ -150,13 +159,72 @@ definition(struct codefrag *prog)
 
     skipws();
     if (currch == '(') {
-        // TODO function def;
+        advskipws();
         return;
     }
 
     datadef(prog);
 }
 
+// parse a function definition
+//
+void 
+funcdef(struct codefrag *prog)
+{
+    local = NULL;
+
+    if (currch == ')') {
+        advskipws();
+    } else {
+        funcparms();
+    }
+
+    statement(prog);
+}
+
+// parse function parameters
+//
+void
+funcparms(void)
+{
+    const char *nm;
+    struct stabent *sym;
+    int nextarg = 0;
+
+    for(;;) {
+        nm = name();
+        sym = stabget(&local, nm);
+        
+        if (sym->sc == NEW) {
+            sym->sc = AUTO;
+            sym->offset = nextarg++;
+        } else {
+            err(line, "'%s' is multiply defined", nm);
+        }
+
+        skipws();
+        if (currch == ')') {
+            break;
+        } else if (currch != ',') {
+            err(line, "')' or ',' expected");
+            break;
+        }
+
+        advskipws();
+    }
+
+    advskipws();
+}
+
+// parse a statement
+//
+void statement(struct codefrag *prog)
+{
+
+}
+
+// Parse a data definition
+//
 void
 datadef(struct codefrag *prog)
 {
@@ -192,8 +260,9 @@ datadef(struct codefrag *prog)
         if (!isvec) {
             cn = cnalloc();
             cn->op = TIVAL;
-            cn->arg.ival.strlen = INTCONST;
-            cn->arg.ival.v.intcon = 0;
+            cn->arg.ival.isconst = 1;
+            cn->arg.ival.v.con.strlen = INTCONST;
+            cn->arg.ival.v.con.v.intcon = 0;
             cnpush(prog, cn);
             emitted++;
         }
@@ -202,7 +271,14 @@ datadef(struct codefrag *prog)
         for(;;) {
             cn = cnalloc();
             cn->op = TIVAL;
-            constant(&cn->arg.ival);
+            
+            if (isalpha(currch) || currch == '_') {
+                cn->arg.ival.isconst = 0;
+                cn->arg.ival.v.name = stabget(&global, name());
+            } else {
+                cn->arg.ival.isconst = 1;
+                constant(&cn->arg.ival.v.con);
+            }
             cnpush(prog, cn);
             emitted++;
 
@@ -490,35 +566,39 @@ cfprint(struct codefrag *frag)
             break;
 
         case TIVAL:
-            if (n->arg.ival.strlen == INTCONST) {
-                printf("%sIVAL %u\n", spaces, n->arg.ival.v.intcon);
-            } else {
-                printf("%sIVAL strcon\n", spaces);
-                for (i = 0; i < n->arg.ival.strlen; i += XPERLINE) {
-                    printf("%s", spaces);
+            if (n->arg.ival.isconst) {
+                if (n->arg.ival.v.con.strlen == INTCONST) {
+                    printf("%sIVAL %u\n", spaces, n->arg.ival.v.con.v.intcon);
+                } else {
+                    printf("%sIVAL strcon\n", spaces);
+                    for (i = 0; i < n->arg.ival.v.con.strlen; i += XPERLINE) {
+                        printf("%s", spaces);
 
-                    l = n->arg.ival.strlen - i;
-                    l = l > XPERLINE ? XPERLINE : l;
+                        l = n->arg.ival.v.con.strlen - i;
+                        l = l > XPERLINE ? XPERLINE : l;
 
-                    for (j = 0; j < l; j++) {
-                        printf("%02x ", n->arg.ival.v.strcon[i+j] & 0xff);
+                        for (j = 0; j < l; j++) {
+                            printf("%02x ", n->arg.ival.v.con.v.strcon[i+j] & 0xff);
+                        }
+
+                        for (; j < XPERLINE; j++) {
+                            printf("   ");
+                        }
+
+                        printf(" |");
+                        for (j = 0; j < l; j++) {
+                            ch = n->arg.ival.v.con.v.strcon[i+j];
+                            putchar(isprint(ch) ? ch : '.'); 
+                        }
+
+                        for (; j < XPERLINE; j++) {
+                            putchar(' ');
+                        }
+                        printf("|\n");
                     }
-
-                    for (; j < XPERLINE; j++) {
-                        printf("   ");
-                    }
-
-                    printf(" |");
-                    for (j = 0; j < l; j++) {
-                        ch = n->arg.ival.v.strcon[i+j];
-                        putchar(isprint(ch) ? ch : '.'); 
-                    }
-
-                    for (; j < XPERLINE; j++) {
-                        putchar(' ');
-                    }
-                    printf("|\n");
                 }
+            } else {
+                printf("%sIVAL extrn %s\n", spaces, n->arg.ival.v.name->name);
             }
             break;
 

@@ -3,4 +3,4 @@ a;
 b 1;
 bar 'ab';
 foo[4] "abc*ndef", 42;
-b 42;
+smag a,b;
