@@ -131,7 +131,8 @@ intcon(struct token *t)
     }
 
     t->type = TINTCON;
-    t->val.intcon = val;
+    t->val.con.strlen = INTCONST;
+    t->val.con.v.intcon = val;
 }
 
 // Parse a character constant
@@ -173,7 +174,8 @@ charcon(struct token *t)
     advskipws();
 
     t->type = TINTCON;
-    t->val.intcon = val;
+    t->val.con.strlen = INTCONST;
+    t->val.con.v.intcon = val;
 }
 
 // parse a string constant
@@ -216,9 +218,9 @@ strcon(struct token *t)
     }
 
     t->type = TSTRCON;
-    t->val.strcon.len = idx;
-    t->val.strcon.bytes = malloc(idx);
-    memcpy(t->val.strcon.bytes, buf, idx);
+    t->val.con.strlen = idx;
+    t->val.con.v.strcon = malloc(idx);
+    memcpy(t->val.con.v.strcon, buf, idx);
 }
 
 // Parse operators and other punctuation
@@ -247,7 +249,7 @@ punc(struct token *tok)
     case '-':
         advraw();
         tok->type = TMINUS;
-        if (currch == '+') {
+        if (currch == '-') {
             advraw();
             tok->type = TMM;
         }

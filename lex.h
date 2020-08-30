@@ -65,16 +65,22 @@ enum toktyp {
 #define STREOF (-1)
 #define MAXSTR 256 
 
+#define INTCONST (-1)
+
+struct constant {
+    int strlen;
+    union {
+        char *strcon;
+        unsigned intcon;
+    } v;
+};
+
 struct token {
     enum toktyp type;
     int line;
     union {
         char name[MAXNAM + 1];
-        unsigned intcon;
-        struct {
-            char *bytes;
-            int len;
-        } strcon;
+        struct constant con;
     } val;
 };
 

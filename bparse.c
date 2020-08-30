@@ -7,8 +7,6 @@
 
 #include "lex.h"
 
-#define INTCONST (-1)
-
 enum storclas {
     NEW,
     EXTERN,
@@ -26,14 +24,6 @@ struct stabent {
     int offset;                     // offset on stack
 };
 
-struct constant {
-    int strlen;
-    union {
-        char *strcon;
-        unsigned intcon;
-    } v;
-};
-
 struct ival {
     int isconst;
     union {
@@ -42,13 +32,25 @@ struct ival {
     } v; 
 };
 
+// stack op notation: p1 p0 /op/ r1 r0
+// p1 is the next to top of stack before op, p0 is the top of stack before op,
+// r1 is the next to top of stack after op, r0 is the top of stack after op
+//
 enum codeop {
-    ONAMDEF,
-    OIVAL,
-    OZERO,
-    OJMP,
-    OPSHCON,
-    OPSHSYM,
+    ONAMDEF,                        // define a name for an address
+    OIVAL,                          // store a constant in memory (data def)
+    OZERO,                          // put 'n' zeroes in memory (data def)
+    OJMP,                           // jump to a code location
+    OPOP,                           // p0 /pop/ 
+    ODUP,                           // p0 /dup/ p0 p0
+    OROT,                           // p2 p1 p0 /rot/ p0 p2 p1
+    OPSHCON,                        // /pshcon/ constant
+    OPSHSYM,                        // /pshsym/ symbol-value
+    ODEREF,                         // addr /deref/ value-at-addr 
+    OSTORE,                         // p1 p0 /store/     ; mem[p1] = p0
+
+    OADD,                           // a1 a0 /add/ a1+a0
+    OSUB,                           // a1 a0 /sub/ a1-a0
 };
 
 struct codenode {
@@ -59,8 +61,7 @@ struct codenode {
         struct ival ival;
         unsigned rept;
         struct stabent *target;
-        struct constant *con;
-        struct stabent *sym;
+        struct constant con;
     } arg;
 };
 
@@ -68,17 +69,14 @@ struct codefrag {
     struct codenode *head, *tail;
 };
 
-enum vtype {
-    LVALUE,
-    RVALUE,
-};
+#define LVAL  0
+#define RVAL  1
 
 static char *srcfn;
 static int errf = 0;
 static struct token *curtok;
 static struct stabent *global;
 static struct stabent *local;
-static struct token savtok;
 
 static void program(struct codefrag *prog);
 static void definition(struct codefrag *prog);
@@ -87,11 +85,13 @@ static void funcparms(void);
 static void statement(struct codefrag *prog);
 static void stmtlabel(struct codefrag *prog, int line, const char *nm);
 static void datadef(struct codefrag *prog);
+static void pushtok(const struct token *tok);
 static void nextok(void);
 
-static void rvalue(struct codefrag *prog);
+static int rvalue(struct codefrag *prog);
 
 static struct stabent *stabget(struct stabent **root, const char *name);
+static struct stabent *stabfind(const char *name);
 
 static struct codenode *cnalloc(void);
 static void cnpush(struct codefrag *frag, struct codenode *node);
@@ -233,7 +233,9 @@ funcparms(void)
 void 
 statement(struct codefrag *prog)
 {
+    struct token savtok;
     const char *nm, *p;
+    struct codenode *cn;
 
     if (curtok->type == TSCOLON) {
         nextok();
@@ -270,7 +272,31 @@ statement(struct codefrag *prog)
             if (curtok->type == TCOLON) {
                 stmtlabel(prog, curtok->line, savtok.val.name);
                 nextok();
+                break;
             }
+
+            pushtok(curtok);
+            pushtok(&savtok);
+            nextok();
+
+
+            
+            // falling through
+        default:
+
+            // rvalue ';'
+            rvalue(prog);
+    
+            cn = cnalloc();
+            cn->op = OPOP;
+            cnpush(prog, cn);
+            
+            if (curtok->type == TSCOLON) {
+                nextok();
+            } else {
+                err(curtok->line, "';' expected");
+            }
+
             break;
     }
 }
@@ -319,7 +345,7 @@ datadef(struct codefrag *prog)
         }
 
         if (curtok->type == TINTCON) {
-            size = curtok->val.intcon;
+            size = curtok->val.con.v.intcon;
             nextok();
         }
 
@@ -332,6 +358,9 @@ datadef(struct codefrag *prog)
         nextok();
         isvec = 1;
     }
+
+    // TODO if it's a vector, the symbol points to a word in memory,
+    // which points to the base of the vector!
 
     if (curtok->type == TSCOLON) {
         if (!isvec) {
@@ -356,15 +385,9 @@ datadef(struct codefrag *prog)
                 break;
                 
             case TINTCON:
-                cn->arg.ival.isconst = 1;
-                cn->arg.ival.v.con.strlen = INTCONST;
-                cn->arg.ival.v.con.v.intcon = curtok->val.intcon;
-                break; 
-
             case TSTRCON:
                 cn->arg.ival.isconst = 1;
-                cn->arg.ival.v.con.strlen = curtok->val.strcon.len; 
-                cn->arg.ival.v.con.v.strcon = curtok->val.strcon.bytes;
+                cn->arg.ival.v.con = curtok->val.con;
                 break;
 
             default:
@@ -399,11 +422,29 @@ datadef(struct codefrag *prog)
     }
 }
 
+#define BAKTOK 2
+static struct token baktok[BAKTOK];
+static int ibaktok = -1;
+
+// put a token back onto the parsing stream
+//
+void
+pushtok(const struct token *tok)
+{
+    if (ibaktok < BAKTOK - 1) {
+        baktok[++ibaktok] = *tok;
+    }
+}
+
 // advance to the next token
 //
 void
 nextok(void)
 {
+    if (ibaktok >= 0) {
+         curtok = &baktok[ibaktok--];
+         return;
+    }
     curtok = token();
 }
 
@@ -413,18 +454,78 @@ nextok(void)
  *
  */
 
-// Parse a primary expression
+// Add an op with no parameters
 //
 static void
-rvalprimary(struct codefrag *frag)
+pushop(struct codefrag *prog, enum codeop op)
 {
+    struct codenode *cn = cnalloc();
+    cn->op = op;
+    cnpush(prog, cn);
+}
+
+// Push an integer constant onto the stack
+//
+static void
+pushicon(struct codefrag *prog, unsigned val)
+{
+    struct codenode *cn = cnalloc();
+    cn->op = OPSHCON;
+    cn->arg.con.strlen = INTCONST;
+    cn->arg.con.v.intcon = val;
+
+    cnpush(prog, cn);
+}
+
+// Convert the top of the stack to an rvalue
+//
+static void
+torval(struct codefrag *prog)
+{
+    pushop(prog, ODEREF);
+}
+
+static const char lvalex[] = "lvalue expected";
+
+// Parse a primary expression
+//
+static int 
+eprimary(struct codefrag *prog)
+{
+    int type;
+
+    struct codenode *cn;
+    struct stabent *sym;
+    int done;
+
     switch (curtok->type) {
-    case TNAME: break;
-    case TINTCON: break;
-    case TSTRCON: break;
+    case TNAME: 
+        sym = stabfind(curtok->val.name);
+        if (sym) {
+            cn = cnalloc();
+            cn->op = OPSHSYM;
+            cn->arg.target = sym;
+            cnpush(prog, cn);
+            nextok();
+            type = LVAL;
+        } else {
+            err(curtok->line, "'%s' is not defined", curtok->val.name);
+        }
+        break;
+
+    case TINTCON: 
+    case TSTRCON:
+        cn = cnalloc();
+        cn->op = OPSHCON;
+        cn->arg.con = curtok->val.con;
+        cnpush(prog, cn);
+        nextok();
+        type = RVAL;
+        break;
+
     case TLPAREN:
         nextok();
-        rvalue(frag);
+        type = rvalue(prog);
         if (curtok->type == TRPAREN) {
             nextok();
         } else {
@@ -433,32 +534,71 @@ rvalprimary(struct codefrag *frag)
         break;
     }
 
-    for(;;) {
-        if (curtok->type == TLPAREN) {
+    for(done = 0; !done;) {
+        switch (curtok->type) {
+        case TLPAREN:
             // TODO function invocation
             //
-        } else if (curtok->type = TLBRACKET) {
+            type = RVAL;
+            break;
+
+        case TLBRACKET:
             nextok();
-            rvalue(frag);
+            if (type == LVAL) {
+                torval(prog);
+            }
+            if (rvalue(prog) == LVAL) {
+                //torval(prog);
+            }
             if (curtok->type == TRBRACKET) {
                 nextok();
             } else {
                 err(curtok->line, "']' expected");
             }
+            
+            pushop(prog, OADD);
+            type = LVAL;
+            break;
+
+        case TPP:
+        case TMM:
+            // post-increment, post-decrement
+            if (type != LVAL) {
+                err(curtok->line, lvalex);
+            } else {
+                                        // lval
+                pushop(prog, ODUP);     // lval lval
+                pushop(prog, ODEREF);   // lval old-val
+                pushop(prog, ODUP);     // lval old-val old-val
+                pushop(prog, OROT);     // old-val lval old-val
+                pushicon(prog, 1);
+                pushop(prog, curtok->type == TPP ? OADD : OSUB);
+                                        // old-val lval new-val
+                pushop(prog, OSTORE);   // old-val, m[lval] = newval
+            }
+            
+            type = RVAL;
+            nextok();
+            break;
+
+        default:
+            done = 1;
         }
     }
+
+    return type;
 }
 
 // Parse unary operators
 //
-static void
+static int 
 rvalunary(struct codefrag *frag)
 {
     if (curtok->type == TTIMES || curtok->type == TAND || curtok->type == TMINUS || curtok->type == TNOT || curtok->type == TPP || curtok->type == TMM) {
         nextok();
         rvalunary(frag);
     } else {
-        rvalprimary(frag);
+        eprimary(frag);
         if (curtok->type == TPP || curtok->type == TMM) {
             nextok();
         }
@@ -570,7 +710,7 @@ rvalcond(struct codefrag *frag)
 
 // Parse an rvalue (expression)
 //
-void
+int
 rvalue(struct codefrag *frag)
 {
     rvalcond(frag);
@@ -602,6 +742,24 @@ stabget(struct stabent **root, const char *name)
     *root = p;
 
     return p;
+}
+
+// Find the given symbol, either in local or global scope
+//
+struct stabent *stabfind(const char *name)
+{
+    struct stabent *search[2] = { local, global };
+    struct stabent *stab;
+    int i;
+
+    for (i = 0; i < 2; i++) {
+        for (stab = search[i]; stab; stab = stab->next) {
+            if (strcmp(stab->name, name) == 0) {
+                return stab;
+            }
+        }
+    }
+    return NULL;
 }
 
 /******************************************************************************
@@ -662,8 +820,34 @@ hexdump(const char *indent, const char *data, int len)
     }
 }
 
+// print an op with a constant arg
+static void
+prcon(const char *spaces, const char *op, struct constant *con)
+{
+    if (con->strlen == INTCONST) {
+        printf("%s%s %u\n", spaces, op, con->v.intcon);
+    } else {
+        printf("%s%s strcon\n", spaces, op);
+        hexdump(spaces, con->v.strcon, con->strlen);
+    }
+}
+
 // Print a code fragment to stdout
 //
+static struct {
+    enum codeop op;
+    const char *text;
+} simpleops[] = {
+    { OPOP, "POP" },
+    { OROT, "ROT" },
+    { ODUP, "DUP" },
+    { ODEREF, "DEREF" },
+    { OSTORE, "STORE" },
+    { OADD, "ADD" },
+    { OSUB, "SUB" },
+};
+static int nsimpleops = sizeof(simpleops) / sizeof(simpleops[0]);
+
 void 
 cfprint(struct codefrag *frag) 
 {
@@ -674,6 +858,17 @@ cfprint(struct codefrag *frag)
     char ch;
 
     for (n = frag->head; n; n = n->next) {
+        for (i = 0; i < nsimpleops; i++) {
+            if (n->op == simpleops[i].op) {
+                break;
+            }
+        }
+
+        if (i < nsimpleops) {
+            printf("%s%s\n", spaces, simpleops[i].text);
+            continue;
+        }
+
         switch (n->op) {
         case ONAMDEF:
             printf("%s:\n", n->arg.name);
@@ -681,15 +876,7 @@ cfprint(struct codefrag *frag)
 
         case OIVAL:
             if (n->arg.ival.isconst) {
-                if (n->arg.ival.v.con.strlen == INTCONST) {
-                    printf("%sIVAL %u\n", spaces, n->arg.ival.v.con.v.intcon);
-                } else {
-                    printf("%sIVAL strcon\n", spaces);
-                    hexdump(
-                        spaces, 
-                        n->arg.ival.v.con.v.strcon, 
-                        n->arg.ival.v.con.strlen);
-                }
+                prcon(spaces, "IVAL", &n->arg.ival.v.con);
             } else {
                 printf("%sIVAL extrn %s\n", spaces, n->arg.ival.v.name->name);
             }
@@ -704,6 +891,11 @@ cfprint(struct codefrag *frag)
             break;
 
         case OPSHCON:
+            prcon(spaces, "PSHCON", &n->arg.con);
+            break;
+
+        case OPSHSYM:
+            printf("%sPSHSYM %s\n", spaces, n->arg.target->name);
             break;
         }
     }
