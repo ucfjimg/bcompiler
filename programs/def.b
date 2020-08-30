@@ -27,7 +27,9 @@ here:
     } else {
         2;
     }
-
+    
+    while (c--)
+        a = a + 2;
 }
 
 

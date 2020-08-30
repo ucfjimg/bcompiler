@@ -42,7 +42,7 @@ enum codeop {
     OIVAL,                          // store a constant in memory (data def)
     OZERO,                          // put 'n' zeroes in memory (data def)
     OJMP,                           // jump to a code location
-    OBZ,                            // branch if top of stack is zero
+    OBZ,                            // branch if top of stack is zero, and pops condition
     OPOP,                           // p0 /pop/ 
     ODUP,                           // p0 /dup/ p0 p0
     OROT,                           // p2 p1 p0 /rot/ p0 p2 p1
@@ -104,6 +104,7 @@ static void funcparms(void);
 static void statement(struct codefrag *prog);
 static void stmtlabel(struct codefrag *prog, int line, const char *nm);
 static void stmtif(struct codefrag *prog);
+static void stmtwhile(struct codefrag *prog);
 static void datadef(struct codefrag *prog);
 static void pushtok(const struct token *tok);
 static void nextok(void);
@@ -288,7 +289,11 @@ statement(struct codefrag *prog)
             stmtif(prog);
             break;
 
-        case TWHILE: break;
+        case TWHILE:
+            nextok();
+            stmtwhile(prog);
+            break;
+
         case TSWITCH: break;
         case TGOTO: break;
         case TRETURN: break;
@@ -352,7 +357,7 @@ stmtlabel(struct codefrag *prog, int line, const char *nm)
     }
 }
 
-// Prase an if statement
+// Parse an if statement
 //
 void
 stmtif(struct codefrag *prog)
@@ -388,9 +393,38 @@ stmtif(struct codefrag *prog)
         statement(prog);
         pushlbl(prog, donepart->name);
     }
+}
 
-    // clean up condition value from stack
-    pushop(prog, OPOP);
+// Parse a while statement
+//
+void
+stmtwhile(struct codefrag *prog)
+{
+    struct stabent *top = mklabel();
+    struct stabent *bottom = mklabel();
+
+    pushlbl(prog, top->name);
+
+    if (curtok->type != TLPAREN) {
+        err(curtok->line, "'(' expected");
+        return;
+    }
+    nextok();
+    
+    if (expr(prog) == LVAL) {
+        torval(prog);
+    }
+
+    if (curtok->type != TRPAREN) {
+        err(curtok->line, "')' expected");
+        return;
+    }
+    nextok();
+
+    pushbr(prog, OBZ, bottom);
+    statement(prog);
+    pushbr(prog, OJMP, top);
+    pushlbl(prog, bottom->name);
 }
 
 // Parse a data definition
