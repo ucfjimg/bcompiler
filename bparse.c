@@ -103,10 +103,15 @@ static void funcdef(struct codefrag *prog);
 static void funcparms(void);
 static void statement(struct codefrag *prog);
 static void stmtlabel(struct codefrag *prog, int line, const char *nm);
+static void stmtif(struct codefrag *prog);
 static void datadef(struct codefrag *prog);
 static void pushtok(const struct token *tok);
 static void nextok(void);
 
+static void pushop(struct codefrag *prog, enum codeop op);
+static void pushbr(struct codefrag *prog, enum codeop op, struct stabent *target);
+static void pushlbl(struct codefrag *prog, const char *lbl);
+static void torval(struct codefrag *prog);
 static int expr(struct codefrag *prog);
 
 static struct stabent *stabget(struct stabent **root, const char *name);
@@ -278,7 +283,11 @@ statement(struct codefrag *prog)
         case TAUTO: break;
         case TEXTRN: break;
         case TCASE: break;
-        case TIF: break;
+        case TIF:
+            nextok();
+            stmtif(prog);
+            break;
+
         case TWHILE: break;
         case TSWITCH: break;
         case TGOTO: break;
@@ -298,7 +307,6 @@ statement(struct codefrag *prog)
             pushtok(curtok);
             pushtok(&savtok);
             nextok();
-
 
             
             // falling through
@@ -342,6 +350,47 @@ stmtlabel(struct codefrag *prog, int line, const char *nm)
     } else {
         err(line, "'%s' is already defined", nm);
     }
+}
+
+// Prase an if statement
+//
+void
+stmtif(struct codefrag *prog)
+{
+    struct stabent *elsepart = mklabel();
+    struct stabent *donepart = mklabel();
+    
+    if (curtok->type != TLPAREN) {
+        err(curtok->line, "'(' expected");
+        return;
+    }
+    nextok();
+    
+    if (expr(prog) == LVAL) {
+        torval(prog);
+    }
+
+    if (curtok->type != TRPAREN) {
+        err(curtok->line, "')' expected");
+        return;
+    }
+    nextok();
+
+    pushbr(prog, OBZ, elsepart);
+    statement(prog);
+    
+    if (curtok->type != TELSE) {
+        pushlbl(prog, elsepart->name); 
+    } else {
+        nextok();
+        pushbr(prog, OJMP, donepart);
+        pushlbl(prog, elsepart->name);
+        statement(prog);
+        pushlbl(prog, donepart->name);
+    }
+
+    // clean up condition value from stack
+    pushop(prog, OPOP);
 }
 
 // Parse a data definition
@@ -476,7 +525,7 @@ nextok(void)
 
 // Add an op with no parameters
 //
-static void
+void
 pushop(struct codefrag *prog, enum codeop op)
 {
     struct codenode *cn = cnalloc();
@@ -499,7 +548,7 @@ pushicon(struct codefrag *prog, unsigned val)
 
 // Add a branch op
 //
-static void
+void
 pushbr(struct codefrag *prog, enum codeop op, struct stabent *target)
 {
     struct codenode *cn = cnalloc();
@@ -511,7 +560,7 @@ pushbr(struct codefrag *prog, enum codeop op, struct stabent *target)
 
 // Add a label
 //
-static void
+void
 pushlbl(struct codefrag *prog, const char *lbl)
 {
     struct codenode *cn = cnalloc();
@@ -523,7 +572,7 @@ pushlbl(struct codefrag *prog, const char *lbl)
 
 // Convert the top of the stack to an rvalue
 //
-static void
+void
 torval(struct codefrag *prog)
 {
     pushop(prog, ODEREF);
