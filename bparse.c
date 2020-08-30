@@ -43,10 +43,12 @@ struct ival {
 };
 
 enum codeop {
-    TNAMDEF,
-    TIVAL,
-    TZERO,
-    TJMP,
+    ONAMDEF,
+    OIVAL,
+    OZERO,
+    OJMP,
+    OPSHCON,
+    OPSHSYM,
 };
 
 struct codenode {
@@ -57,6 +59,8 @@ struct codenode {
         struct ival ival;
         unsigned rept;
         struct stabent *target;
+        struct constant *con;
+        struct stabent *sym;
     } arg;
 };
 
@@ -64,7 +68,10 @@ struct codefrag {
     struct codenode *head, *tail;
 };
 
-FILE *fp;
+enum vtype {
+    LVALUE,
+    RVALUE,
+};
 
 static char *srcfn;
 static int errf = 0;
@@ -95,6 +102,7 @@ static void err(int line, const char *fmt, ...);
 int 
 main(int argc, char **argv)
 {
+    FILE *fp;
     struct codefrag prog = { NULL, NULL };
     
     if (argc != 2) {
@@ -110,6 +118,7 @@ main(int argc, char **argv)
         return 1;
     }
     
+    lexinit(fp);
     nextok();
     program(&prog);
     cfprint(&prog);
@@ -141,7 +150,7 @@ definition(struct codefrag *prog)
         return;
     }
 
-    cn->op = TNAMDEF;
+    cn->op = ONAMDEF;
     strcpy(cn->arg.name, curtok->val.name);
     cnpush(prog, cn);
 
@@ -275,7 +284,7 @@ stmtlabel(struct codefrag *prog, int line, const char *nm)
     struct stabent *sym;
 
     cn = cnalloc();
-    cn->op = TNAMDEF;
+    cn->op = ONAMDEF;
     strcpy(cn->arg.name, nm);
 
     cnpush(prog, cn);
@@ -315,17 +324,19 @@ datadef(struct codefrag *prog)
         }
 
         if (curtok->type != TRBRACKET) {
-            err(curtok->line, "']' constant expected");
+            err(curtok->line, "']' expected");
             nextok();
             return;
-        }
+        } 
+
+        nextok();
         isvec = 1;
     }
 
     if (curtok->type == TSCOLON) {
         if (!isvec) {
             cn = cnalloc();
-            cn->op = TIVAL;
+            cn->op = OIVAL;
             cn->arg.ival.isconst = 1;
             cn->arg.ival.v.con.strlen = INTCONST;
             cn->arg.ival.v.con.v.intcon = 0;
@@ -336,7 +347,7 @@ datadef(struct codefrag *prog)
     } else {
         for(;;) {
             cn = cnalloc();
-            cn->op = TIVAL;
+            cn->op = OIVAL;
             
             switch (curtok->type) {
             case TNAME:
@@ -352,8 +363,8 @@ datadef(struct codefrag *prog)
 
             case TSTRCON:
                 cn->arg.ival.isconst = 1;
-                cn->arg.ival.v.con.strlen = INTCONST;
-                cn->arg.ival.v.con.v.intcon = curtok->val.intcon;
+                cn->arg.ival.v.con.strlen = curtok->val.strcon.len; 
+                cn->arg.ival.v.con.v.strcon = curtok->val.strcon.bytes;
                 break;
 
             default:
@@ -382,7 +393,7 @@ datadef(struct codefrag *prog)
 
     if (size > emitted) {
         cn = cnalloc();
-        cn->op = TZERO;
+        cn->op = OZERO;
         cn->arg.rept = size - emitted;
         cnpush(prog, cn);
     }
@@ -626,6 +637,31 @@ cnpush(struct codefrag *frag, struct codenode *node)
     }
 }
 
+// Hex dump
+//
+void
+hexdump(const char *indent, const char *data, int len)
+{
+    int i, j, l;
+    const int XPERLINE = 16;
+
+    for (i = 0; i < len; i += XPERLINE) {
+        printf("%s", indent);
+
+        l = (len - i) > XPERLINE ? XPERLINE : (len - i);
+
+        for (j = 0; j < l; j++)   printf("%02x ", data[i+j] & 0xff);
+        for (; j < XPERLINE; j++) printf("   ");
+     
+        printf(" |");
+        
+        for (j = 0; j < l; j++)   putchar(isprint(data[i+j]) ? data[i+j] : '.'); 
+        for (; j < XPERLINE; j++) putchar(' ');
+
+        printf("|\n");
+    }
+}
+
 // Print a code fragment to stdout
 //
 void 
@@ -634,62 +670,43 @@ cfprint(struct codefrag *frag)
     static const char spaces[] = "          ";
     struct codenode *n;
 
-    const int XPERLINE = 16;
     int i, j, l;
     char ch;
 
     for (n = frag->head; n; n = n->next) {
         switch (n->op) {
-        case TNAMDEF:
+        case ONAMDEF:
             printf("%s:\n", n->arg.name);
             break;
 
-        case TIVAL:
+        case OIVAL:
             if (n->arg.ival.isconst) {
                 if (n->arg.ival.v.con.strlen == INTCONST) {
                     printf("%sIVAL %u\n", spaces, n->arg.ival.v.con.v.intcon);
                 } else {
                     printf("%sIVAL strcon\n", spaces);
-                    for (i = 0; i < n->arg.ival.v.con.strlen; i += XPERLINE) {
-                        printf("%s", spaces);
-
-                        l = n->arg.ival.v.con.strlen - i;
-                        l = l > XPERLINE ? XPERLINE : l;
-
-                        for (j = 0; j < l; j++) {
-                            printf("%02x ", n->arg.ival.v.con.v.strcon[i+j] & 0xff);
-                        }
-
-                        for (; j < XPERLINE; j++) {
-                            printf("   ");
-                        }
-
-                        printf(" |");
-                        for (j = 0; j < l; j++) {
-                            ch = n->arg.ival.v.con.v.strcon[i+j];
-                            putchar(isprint(ch) ? ch : '.'); 
-                        }
-
-                        for (; j < XPERLINE; j++) {
-                            putchar(' ');
-                        }
-                        printf("|\n");
-                    }
+                    hexdump(
+                        spaces, 
+                        n->arg.ival.v.con.v.strcon, 
+                        n->arg.ival.v.con.strlen);
                 }
             } else {
                 printf("%sIVAL extrn %s\n", spaces, n->arg.ival.v.name->name);
             }
             break;
 
-        case TZERO:
+        case OZERO:
             printf("%sZERO %d\n", spaces, n->arg.rept);
             break;
 
-        case TJMP:
+        case OJMP:
             printf("%sJMP %s\n", spaces, n->arg.target->name);
+            break;
+
+        case OPSHCON:
+            break;
         }
     }
-
 }
 
 /******************************************************************************

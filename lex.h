@@ -2,6 +2,7 @@
 //
 #ifndef LEX_H_
 #define LEX_H_
+#include <stdio.h>
 
 enum toktyp {
     // special
@@ -77,6 +78,7 @@ struct token {
     } val;
 };
 
+extern void lexinit(FILE *fp);
 extern struct token *token(void);
 
 #endif

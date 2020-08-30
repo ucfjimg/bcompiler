@@ -7,8 +7,8 @@
 extern err(int line, const char *fmt, ...);
 
 int line = 1;
-int currch;
-extern FILE *fp;
+static int currch;
+static FILE *fp;
 
 struct keyword {
     char *name;
@@ -43,6 +43,15 @@ static void advraw(void);
 
 static int get(void);
 static void unget(int ch);
+
+// initialize the lexer
+//
+void
+lexinit(FILE *fin)
+{
+    fp = fin;
+    advraw();
+}
 
 // get a token
 //
