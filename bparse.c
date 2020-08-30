@@ -5,9 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_NAME 8
-#define MAX_STR 256 // max length of string constant
-#define STREOF (-1)
+#include "lex.h"
 
 #define INTCONST (-1)
 
@@ -22,7 +20,7 @@ struct codenode;
 
 struct stabent {
     struct stabent *next;           // next in chain
-    char name[MAX_NAME + 1];        // symbol name
+    char name[MAXNAM + 1];          // symbol name
     enum storclas sc;               // storage class
     struct codenode *exdef;         // if extrn and we have a definition
     // if AUTO, offset into stack
@@ -56,7 +54,7 @@ struct codenode {
     struct codenode *next;
     enum codeop op;
     union {
-        char name[MAX_NAME+1];
+        char name[MAXNAM+1];
         struct ival ival;
         unsigned rept;
     } arg;
@@ -66,11 +64,11 @@ struct codefrag {
     struct codenode *head, *tail;
 };
 
+FILE *fp;
+
 static char *srcfn;
-static FILE *fp;
-static int line = 1;
 static int errf = 0;
-static int currch = '\n';
+static struct token *curtok;
 static struct stabent *global;
 static struct stabent *local;
 
@@ -80,11 +78,7 @@ static void funcdef(struct codefrag *prog);
 static void funcparms(void);
 static void statement(struct codefrag *prog);
 static void datadef(struct codefrag *prog);
-static void constant(struct constant *con);
-static void charcon(struct constant *con);
-static void strcon(struct constant *con);
-static int escape(int ch);
-static char *name(void);
+static void nextok(void);
 
 static struct stabent *stabget(struct stabent **root, const char *name);
 
@@ -92,10 +86,6 @@ static struct codenode *cnalloc(void);
 static void cnpush(struct codefrag *frag, struct codenode *node);
 static void cfprint(struct codefrag *frag);
 
-static int advskipws(void);
-static int skipws(void);
-static void advance(void);
-static void advraw(void);
 static void err(int line, const char *fmt, ...);
 
 int 
@@ -116,6 +106,7 @@ main(int argc, char **argv)
         return 1;
     }
     
+    nextok();
     program(&prog);
     cfprint(&prog);
 }
@@ -127,10 +118,7 @@ program(struct codefrag *prog)
 {
     int ch;
 
-    while (!errf) {
-        if (skipws() == EOF) {
-            return;
-        }
+    while (!errf && curtok->type != TEOF) {
         definition(prog);
     }
 }
@@ -140,13 +128,17 @@ program(struct codefrag *prog)
 void
 definition(struct codefrag *prog)
 {
-    int ch;
-    int here = line;
     struct codenode *cn = cnalloc();
     struct stabent *sym;
 
+    if (curtok->type != TNAME) {
+        err(curtok->line, "name expected");
+        nextok();
+        return;
+    }
+
     cn->op = TNAMDEF;
-    strcpy(cn->arg.name, name());
+    strcpy(cn->arg.name, curtok->val.name);
     cnpush(prog, cn);
 
     sym = stabget(&global, cn->arg.name);
@@ -154,12 +146,14 @@ definition(struct codefrag *prog)
         sym->sc = EXTERN;
         sym->exdef = cn;
     } else {
-        err(here, "'%s' is previously defined", cn->arg.name);
+        err(curtok->line, "'%s' is previously defined", cn->arg.name);
     }
 
-    skipws();
-    if (currch == '(') {
-        advskipws();
+    nextok();
+
+    if (curtok->type == TLPAREN) {
+        nextok();
+        funcdef(prog);
         return;
     }
 
@@ -173,8 +167,8 @@ funcdef(struct codefrag *prog)
 {
     local = NULL;
 
-    if (currch == ')') {
-        advskipws();
+    if (curtok->type == TRPAREN) {
+        nextok();
     } else {
         funcparms();
     }
@@ -192,28 +186,34 @@ funcparms(void)
     int nextarg = 0;
 
     for(;;) {
-        nm = name();
-        sym = stabget(&local, nm);
+        if (curtok->type != TNAME) {
+            nextok();
+            err(curtok->line, "name expected");
+            return;
+        }
+
+        sym = stabget(&local, curtok->val.name);
+
+        nextok();
         
         if (sym->sc == NEW) {
             sym->sc = AUTO;
             sym->offset = nextarg++;
         } else {
-            err(line, "'%s' is multiply defined", nm);
+            err(curtok->line, "'%s' is multiply defined", sym->name);
         }
 
-        skipws();
-        if (currch == ')') {
+        if (curtok->type == TRPAREN) {
             break;
-        } else if (currch != ',') {
-            err(line, "')' or ',' expected");
+        } else if (curtok->type != TCOMMA) {
+            err(curtok->line, "')' or ',' expected");
             break;
         }
 
-        advskipws();
+        nextok();
     }
 
-    advskipws();
+    nextok();
 }
 
 // parse a statement
@@ -228,7 +228,6 @@ void statement(struct codefrag *prog)
 void
 datadef(struct codefrag *prog)
 {
-    int here = line;
     struct constant con;
     struct codenode *cn;
     int isvec = 0;
@@ -236,27 +235,28 @@ datadef(struct codefrag *prog)
     unsigned emitted = 0;
     int ch;
 
-    if (currch == '[') {
-        advskipws();
-        if (currch != ']') {
-            constant(&con);
-            if (con.strlen != INTCONST) {
-                err(here, "vector size constant must not be string");
-                free(con.v.strcon);
-            } else {
-                size = con.v.intcon;
-            }
+    if (curtok->type == TLBRACKET) {
+        nextok();
+        if (curtok->type != TRBRACKET && curtok->type != TINTCON) {
+            err(curtok->line, "']' or integer constant expected");
+            nextok();
+            return;
         }
 
-        if (skipws() != ']') {
-            err(here, "']' expected");
-        } else {
-            advskipws();
+        if (curtok->type == TINTCON) {
+            size = curtok->val.intcon;
+            nextok();
+        }
+
+        if (curtok->type != TRBRACKET) {
+            err(curtok->line, "']' constant expected");
+            nextok();
+            return;
         }
         isvec = 1;
     }
 
-    if (currch == ';') {
+    if (curtok->type == TSCOLON) {
         if (!isvec) {
             cn = cnalloc();
             cn->op = TIVAL;
@@ -266,32 +266,50 @@ datadef(struct codefrag *prog)
             cnpush(prog, cn);
             emitted++;
         }
-        advskipws();
+        nextok();
     } else {
         for(;;) {
             cn = cnalloc();
             cn->op = TIVAL;
             
-            if (isalpha(currch) || currch == '_') {
+            switch (curtok->type) {
+            case TNAME:
                 cn->arg.ival.isconst = 0;
-                cn->arg.ival.v.name = stabget(&global, name());
-            } else {
+                cn->arg.ival.v.name = stabget(&global, curtok->val.name);
+                break;
+                
+            case TINTCON:
                 cn->arg.ival.isconst = 1;
-                constant(&cn->arg.ival.v.con);
+                cn->arg.ival.v.con.strlen = INTCONST;
+                cn->arg.ival.v.con.v.intcon = curtok->val.intcon;
+                break; 
+
+            case TSTRCON:
+                cn->arg.ival.isconst = 1;
+                cn->arg.ival.v.con.strlen = INTCONST;
+                cn->arg.ival.v.con.v.intcon = curtok->val.intcon;
+                break;
+
+            default:
+                err(curtok->line, "name or constant expected");
+                nextok();
+                return;
             }
+
+            nextok();
+            
             cnpush(prog, cn);
             emitted++;
 
-            skipws();
-            if (currch == ';') {
-                advskipws();
+            if (curtok->type == TSCOLON) {
+                nextok();
                 break;
-            } else if (currch == ',') {
-                advskipws();
+            } else if (curtok->type == TCOMMA) {
+                nextok();
                 continue;
             }
 
-            err(here, "';' or ',' expected");
+            err(curtok->line, "';' or ',' expected");
             break; 
         }
     }
@@ -304,186 +322,12 @@ datadef(struct codefrag *prog)
     }
 }
 
-// parse a constant
+// advance to the next token
 //
-void 
-constant(struct constant *con)
+void
+nextok(void)
 {
-    int ch;
-    int base;
-
-    con->strlen = INTCONST;
-    con->v.intcon = 0;
-    
-    skipws();
-
-    switch (currch) {
-    case '0': case '1': case '2': case '3': case '4':
-    case '5': case '6': case '7': case '8': case '9':
-        base = (currch == '0') ? 8 : 10;
-            
-        do {
-            con->v.intcon = con->v.intcon * base + currch - '0';
-            advraw();
-        } while (isdigit(currch));
-        break;
-
-    case '\'':
-        advraw();
-        charcon(con);
-        break;
-
-    case '"':
-        advraw();
-        strcon(con);
-        break;
-
-    default:
-        err(line, "constant expected");
-        break;
-    }
-}
-
-// parse a character constant
-//
-void 
-charcon(struct constant *con)
-{
-    int i, ch;
-    
-    con->strlen = INTCONST;
-    con->v.intcon = 0;
-
-    skipws();
-
-    for (i = 0; i < 2; i++, advraw()) {
-        if (currch == EOF) {
-            err(line, "unterminated char constant");
-            break;
-        }
-
-        if (currch == '\'') {
-            if (i == 0) {
-                err(line, "empty char constant");
-            }
-            break;
-        }
-
-        if (currch == '*') {
-            advraw();
-            currch = escape(currch);
-        }
-
-        con->v.intcon = (con->v.intcon << 8) | (currch & 0xff);
-    }
-
-    if (i == 2 && currch != '\'') {
-        err(line, "unterminated char constant");
-        return;
-    }
-
-    advskipws();
-}
-
-// parse a string constant
-//
-void 
-strcon(struct constant *con)
-{
-    static char buf[MAX_STR];
-    int idx = 0;
-    int here = line;
-
-    for(;; advraw()) {
-        if (currch == EOF) {
-            err(here, "unterminated string constant");
-            break;
-        }
-
-        if (currch == '"') {
-            if (idx < MAX_STR) {
-                buf[idx] = STREOF;
-            }
-            idx++;
-            advskipws();
-            break;
-        }
-
-        if (currch == '*') {
-            advraw();
-            currch = escape(currch);
-        }
-
-        if (idx < MAX_STR) {
-            buf[idx] = currch;
-        }
-        idx++;
-    }
-
-    if (idx > MAX_STR) {
-        err(here, "string constant too long (max %d).", MAX_STR);
-    }
-
-    con->strlen = idx;
-    con->v.strcon = malloc(idx);
-    memcpy(con->v.strcon, buf, idx);
-}
-
-// translate an escape sequence into the character it
-// represents.
-//
-int 
-escape(int ch)
-{
-    switch (ch) {
-    case '0': return 0;
-    case 'e': return STREOF;
-    case '(': return '{';
-    case ')': return '}';
-    case 't': return '\t';
-    case 'n': return '\n';
-    case '*': case '=': case '\'':
-        return ch;
-
-    default:
-        err(line, "invalid escape '%c'", ch);
-        break;
-    }
-
-    return ch;
-}
-
-// parse and return a name. the pointer is to a static
-// buffer which will be overwritten on the next call 
-// to name()
-//
-char *
-name(void)
-{
-    static char id[MAX_NAME + 1];
-    int i = 0;
-    int here = line;
-
-    skipws();
-
-    if (!isalpha(currch) && currch != '_') {
-        err(here, "name expected");
-    } else {
-        do {
-            if (i < MAX_NAME) {
-                id[i] = currch;
-            }
-            i++;
-            advance();
-        } while (isalnum(currch) || currch == '_');
-    }
-
-    id[i <= MAX_NAME ? i : MAX_NAME] = 0;
-    if (i > MAX_NAME) {
-        err(here, "name too long");
-    }
-
-    return id;
+    curtok = token();
 }
 
 /******************************************************************************
@@ -615,96 +459,6 @@ cfprint(struct codefrag *frag)
  * Low level lexical routines
  *
  */
-
-static int get(void);
-static void unget(int ch);
-
-// advance to the next character and consume any whitespace
-// after it, landing on the first non-whitespace character
-// and returning it
-//
-int
-advskipws(void)
-{
-    advance();
-    return skipws();
-}
-
-// skip white space, including comments, and return the next
-// non white space character.
-//
-int 
-skipws(void)
-{
-    while (isspace(currch)) {
-        advance();
-    }
-    return currch;
-}
-
-// Advance to the next character, replacing comments w/ a single space.
-//
-void 
-advance()
-{
-    int here = line;
-    int peekch;
-    int star;
-
-    if ((currch = get()) != '/') {
-        return;
-    }
-
-    if ((peekch = get()) != '*') {
-        unget(peekch);
-        return;
-    }
-    
-    for(star = 0;;) {
-        if ((currch = get()) == EOF) {
-            err(here, "unterminated comment.");
-            break;
-        }
-
-        if (star && currch == '/') {
-            currch = ' ';
-            break;
-        }
-
-        star = currch == '*';
-    }
-}
-
-// Advance to the next character, ignoring comments
-//
-void
-advraw()
-{
-    currch = get();
-}
-
-// get a raw character, counting lines
-//
-int 
-get(void)
-{
-    int ch = fgetc(fp);
-    if (ch == '\n') {
-        line++;
-    }
-    return ch;
-}
-
-// put back a raw character, counting lines
-//
-void 
-unget(int ch)
-{
-    if (ch == '\n') {
-        line--;
-    }
-    ungetc(ch, fp);
-}
 
 // report an error, and set a flag that the compilation
 // has failed.
