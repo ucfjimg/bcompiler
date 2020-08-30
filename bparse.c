@@ -51,6 +51,13 @@ enum codeop {
 
     OADD,                           // a1 a0 /add/ a1+a0
     OSUB,                           // a1 a0 /sub/ a1-a0
+    OMUL,                           // a1 a0 /mul/ a1*a0
+    ODIV,                           // a1 a0 /div/ a1/a0
+    OMOD,                           // a1 a0 /mod/ a1%a0
+    OSHL,                           // a1 a0 /shl/ a1<<a0
+    OSHR,                           // a1 a0 /shr/ a1>>a0
+    ONEG,                           //    a0 /neg/ -a0
+    ONOT,                           //    a0 /not/ !a0   ; always 1 or 0
 };
 
 struct codenode {
@@ -592,53 +599,170 @@ eprimary(struct codefrag *prog)
 // Parse unary operators
 //
 static int 
-rvalunary(struct codefrag *frag)
+eunary(struct codefrag *prog)
 {
-    if (curtok->type == TTIMES || curtok->type == TAND || curtok->type == TMINUS || curtok->type == TNOT || curtok->type == TPP || curtok->type == TMM) {
+    enum toktyp ttype = curtok->type;
+    int type;
+        
+    if (ttype == TDEREF || ttype == TADDR || ttype == TMINUS || ttype == TNOT || ttype == TPP || ttype == TMM) {
         nextok();
-        rvalunary(frag);
-    } else {
-        eprimary(frag);
-        if (curtok->type == TPP || curtok->type == TMM) {
-            nextok();
+        type = eunary(prog);
+
+        switch (ttype) {
+        case TDEREF:
+            if (type == LVAL) {
+                torval(prog);
+            }
+            type = LVAL;
+            break;
+
+        case TADDR:
+            if (type == RVAL) {
+                err(curtok->line, lvalex);
+            } else {
+                type = RVAL;
+            }
+            break;
+
+        case TMINUS:
+        case TNOT:
+            if (type == LVAL) {
+                torval(prog);
+                type = RVAL;
+            }
+            pushop(prog, ttype == TMINUS ? ONEG : ONOT);
+            break;
+
+        case TMM:
+        case TPP:
+            if (type == LVAL) {
+                                        // lval
+                pushop(prog, ODUP);     // lval lval
+                pushop(prog, ODEREF);   // lval old-val
+                pushicon(prog, 1);
+                pushop(prog, ttype == TPP ? OADD : OSUB);
+                                        // lval new-val
+                pushop(prog, ODUP);     // lval new-val new-val
+                pushop(prog, OROT);     // new-val lval new-val
+                pushop(prog, OSTORE);   // new-val, m[lval] = newval
+
+                type = RVAL;
+            } else {
+                err(curtok->line, lvalex);
+            }
+            break;
         }
-    }
+
+        return type;
+    } 
+
+    return eprimary(prog);
 }
 
 // Parse a multiplicative expression
 //
-static void
-rvalmul(struct codefrag *frag)
+static int
+emul(struct codefrag *prog)
 {
-    rvalunary(frag);
-    while (curtok->type == TTIMES || curtok->type == TDIV || curtok->type == TMOD) {
+    int type = eunary(prog);
+    enum toktyp ttype = curtok->type;
+
+    while (ttype == TTIMES || ttype == TDIV || ttype == TMOD) {
+        if (type == LVAL) {
+            torval(prog);
+        }
         nextok();
-        rvalunary(frag);
+        if (eunary(prog) == LVAL) {
+            torval(prog);
+        }
+        
+        switch (ttype) {
+        case TTIMES:
+            pushop(prog, OMUL);
+            break;
+
+        case TDIV:
+            pushop(prog, ODIV);
+            break;
+
+        case TMOD:
+            pushop(prog, OMOD);
+            break;
+        }
+
+        type = RVAL;
+        ttype = curtok->type;
     }
+
+    return type;
 }
 
 // Parse an additive expression
 //
-static void
-rvaladd(struct codefrag *frag)
+static int
+eadd(struct codefrag *prog)
 {
-    rvalmul(frag);
-    while (curtok->type == TPLUS || curtok->type == TMINUS) {
+    int type = emul(prog);
+    enum toktyp ttype = curtok->type;
+
+    while (ttype == TPLUS || ttype == TMINUS) {
+        if (type == LVAL) {
+            torval(prog);
+        }
         nextok();
-        rvalmul(frag);
+        if (emul(prog) == LVAL) {
+            torval(prog);
+        }
+        
+        switch (ttype) {
+        case TPLUS:
+            pushop(prog, OADD);
+            break;
+
+        case TMINUS:
+            pushop(prog, OSUB);
+            break;
+        }
+
+        type = RVAL;
+        ttype = curtok->type;
     }
+
+    return type;
 }
 
 // Parse a shift expression
 //
-static void
-rvalshift(struct codefrag *frag)
+static int
+eshift(struct codefrag *prog)
 {
-    rvaladd(frag);
-    while (curtok->type == TLSHIFT || curtok->type == TRSHIFT) {
+    int type = eadd(prog);
+    enum toktyp ttype = curtok->type;
+
+    while (ttype == TLSHIFT || ttype == TRSHIFT) {
+        if (type == LVAL) {
+            torval(prog);
+        }
         nextok();
-        rvaladd(frag);
+        if (eadd(prog) == LVAL) {
+            torval(prog);
+        }
+        
+        switch (ttype) {
+        case TLSHIFT:
+            pushop(prog, OSHL);
+            break;
+
+        case TRSHIFT:
+            pushop(prog, OSHR);
+            break;
+        }
+
+        type = RVAL;
+        ttype = curtok->type;
     }
+
+    return type;
 }
 
 // Parse a relational expression
@@ -646,10 +770,10 @@ rvalshift(struct codefrag *frag)
 static void
 rvalrel(struct codefrag *frag)
 {
-    rvalshift(frag);
+    eshift(frag);
     while (curtok->type == TGT || curtok->type == TGE || curtok->type == TLE || curtok->type == TLT) {
         nextok();
-        rvalshift(frag);
+        eshift(frag);
     }
 }
 
@@ -845,6 +969,13 @@ static struct {
     { OSTORE, "STORE" },
     { OADD, "ADD" },
     { OSUB, "SUB" },
+    { OMUL, "MUL" },
+    { ODIV, "DIV" },
+    { OMOD, "SUB" },
+    { OSHL, "SHL" },
+    { OSHR, "SHR" },
+    { ONEG, "NEG" },
+    { ONOT, "NOT" },
 };
 static int nsimpleops = sizeof(simpleops) / sizeof(simpleops[0]);
 
