@@ -6,7 +6,6 @@ bar 'ab';
 foo[4] "abc*ndef", 42;
 smag a,b;
 
-
 main()
 {
     -c[42]--;
@@ -30,6 +29,7 @@ here:
     
     while (c--)
         a = a + 2;
+    a(b+1,c+2) + b();
 }
 
 

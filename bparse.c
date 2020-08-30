@@ -37,19 +37,23 @@ struct ival {
 // r1 is the next to top of stack after op, r0 is the top of stack after op
 //
 enum codeop {
-    ONOP,                           // does nothing, placeholder for labels
     ONAMDEF,                        // define a name for an address
     OIVAL,                          // store a constant in memory (data def)
     OZERO,                          // put 'n' zeroes in memory (data def)
     OJMP,                           // jump to a code location
     OBZ,                            // branch if top of stack is zero, and pops condition
     OPOP,                           // p0 /pop/ 
+    OPOPT,                          // p1 p0 /popt/ p1 ; T has p0 
+    OPUSHT,                         // p1 p0 /pusht/ p1 p0 T
+    OPOPN,                          // pn pn-1 ... p0 /popn n/ 
     ODUP,                           // p0 /dup/ p0 p0
+    ODUPN,                          // pn pn-1 ... p0 /dup/ pn pn-1 ... p0 pn
     OROT,                           // p2 p1 p0 /rot/ p0 p2 p1
     OPSHCON,                        // /pshcon/ constant
     OPSHSYM,                        // /pshsym/ symbol-value
-    ODEREF,                         // addr /deref/ value-at-addr 
+    ODEREF,                         // addr /deref/ value-ateaddr 
     OSTORE,                         // p1 p0 /store/     ; mem[p1] = p0
+    OCALL,                          // pn pn-1 ... p0 fn /call(fn)/ pn pn-1 ... p0 retval 
 
     OADD,                           // a1 a0 /add/ a1+a0
     OSUB,                           // a1 a0 /sub/ a1-a0
@@ -78,7 +82,7 @@ struct codenode {
     union {
         char name[MAXNAM+1];
         struct ival ival;
-        unsigned rept;
+        unsigned n;
         struct stabent *target;
         struct constant con;
     } arg;
@@ -110,6 +114,7 @@ static void pushtok(const struct token *tok);
 static void nextok(void);
 
 static void pushop(struct codefrag *prog, enum codeop op);
+static void pushopn(struct codefrag *prog, enum codeop op, unsigned n);
 static void pushbr(struct codefrag *prog, enum codeop op, struct stabent *target);
 static void pushlbl(struct codefrag *prog, const char *lbl);
 static void torval(struct codefrag *prog);
@@ -121,6 +126,7 @@ static struct stabent *mklabel(void);
 
 static struct codenode *cnalloc(void);
 static void cnpush(struct codefrag *frag, struct codenode *node);
+static void cnappend(struct codefrag *fragl, struct codefrag *fragr);
 static void cfprint(struct codefrag *frag);
 
 static void err(int line, const char *fmt, ...);
@@ -520,7 +526,7 @@ datadef(struct codefrag *prog)
     if (size > emitted) {
         cn = cnalloc();
         cn->op = OZERO;
-        cn->arg.rept = size - emitted;
+        cn->arg.n = size - emitted;
         cnpush(prog, cn);
     }
 }
@@ -564,6 +570,17 @@ pushop(struct codefrag *prog, enum codeop op)
 {
     struct codenode *cn = cnalloc();
     cn->op = op;
+    cnpush(prog, cn);
+}
+
+// Add an op with an integer parameter
+//
+void
+pushopn(struct codefrag *prog, enum codeop op, unsigned n)
+{
+    struct codenode *cn = cnalloc();
+    cn->op = op;
+    cn->arg.n = n;
     cnpush(prog, cn);
 }
 
@@ -614,12 +631,46 @@ torval(struct codefrag *prog)
 
 static const char lvalex[] = "lvalue expected";
 
+// parse a function call. returns the number of arguments
+// pushed on the stack
+//
+static int 
+ecall(struct codefrag *prog)
+{
+    int args = 1;
+    struct codefrag arg = { NULL, NULL };
+
+    if (curtok->type == ')') {
+        nextok();
+        return 0;
+    }
+
+    if (expr(&arg) == LVAL) {
+        torval(&arg);
+    }
+
+    if (curtok->type == TCOMMA) {
+        nextok();
+        args += ecall(prog);
+        cnappend(prog, &arg);
+    } else if (curtok->type == TRPAREN) {
+        nextok();
+        cnappend(prog, &arg);
+    } else {
+        err(curtok->line, "')' expected");
+    }
+
+    return args;
+}
+
+
 // Parse a primary expression
 //
 static int 
 eprimary(struct codefrag *prog)
 {
     int type;
+    int args;
 
     struct codenode *cn;
     struct stabent *sym;
@@ -664,8 +715,16 @@ eprimary(struct codefrag *prog)
     for(done = 0; !done;) {
         switch (curtok->type) {
         case TLPAREN:
-            // TODO function invocation
-            //
+            // TODO is fn an lval or rval? 
+
+            args = ecall(prog);
+            
+            pushopn(prog, ODUPN, args);     // fn argn argn-1 ... arg0 fn 
+            pushop(prog, OCALL);            // fn argn argn-1 ... arg0 retval 
+            pushop(prog, OPOPT);            // fn argn argn-1 ... arg0 ; retval in T
+            pushopn(prog, OPOPN, args+1);   // ; retval in T
+            pushop(prog, OPUSHT);           // retval
+
             type = RVAL;
             break;
 
@@ -1165,6 +1224,21 @@ cnpush(struct codefrag *frag, struct codenode *node)
     }
 }
 
+// append a code fragment to the end of another fragment
+//
+void 
+cnappend(struct codefrag *fragl, struct codefrag *fragr)
+{
+    if (fragl->head == NULL) {
+        fragl->head = fragr->head;
+    } else {
+        fragl->tail->next = fragr->head;
+    }
+    fragl->tail = fragr->tail;
+
+    fragr->head = fragr->tail = NULL;
+}
+
 // Hex dump
 //
 void
@@ -1208,12 +1282,14 @@ static struct {
     enum codeop op;
     const char *text;
 } simpleops[] = {
-    { ONOP,   "NOP" },
     { OPOP,   "POP" },
+    { OPOPT,  "POPT" },
+    { OPUSHT, "PUSHT" },
     { OROT,   "ROT" },
     { ODUP,   "DUP" },
     { ODEREF, "DEREF" },
     { OSTORE, "STORE" },
+    { OCALL,  "CALL" },
     { OADD,   "ADD" },
     { OSUB,   "SUB" },
     { OMUL,   "MUL" },
@@ -1268,8 +1344,16 @@ cfprint(struct codefrag *frag)
             }
             break;
 
+        case OPOPN:
+            printf("%sPOPN %d\n", spaces, n->arg.n);
+            break;
+
+        case ODUPN:
+            printf("%sDUPN %d\n", spaces, n->arg.n);
+            break;
+
         case OZERO:
-            printf("%sZERO %d\n", spaces, n->arg.rept);
+            printf("%sZERO %d\n", spaces, n->arg.n);
             break;
 
         case OJMP:
