@@ -37,10 +37,12 @@ struct ival {
 // r1 is the next to top of stack after op, r0 is the top of stack after op
 //
 enum codeop {
+    ONOP,                           // does nothing, placeholder for labels
     ONAMDEF,                        // define a name for an address
     OIVAL,                          // store a constant in memory (data def)
     OZERO,                          // put 'n' zeroes in memory (data def)
     OJMP,                           // jump to a code location
+    OBZ,                            // branch if top of stack is zero
     OPOP,                           // p0 /pop/ 
     ODUP,                           // p0 /dup/ p0 p0
     OROT,                           // p2 p1 p0 /rot/ p0 p2 p1
@@ -105,10 +107,11 @@ static void datadef(struct codefrag *prog);
 static void pushtok(const struct token *tok);
 static void nextok(void);
 
-static int rvalue(struct codefrag *prog);
+static int expr(struct codefrag *prog);
 
 static struct stabent *stabget(struct stabent **root, const char *name);
 static struct stabent *stabfind(const char *name);
+static struct stabent *mklabel(void);
 
 static struct codenode *cnalloc(void);
 static void cnpush(struct codefrag *frag, struct codenode *node);
@@ -302,7 +305,7 @@ statement(struct codefrag *prog)
         default:
 
             // rvalue ';'
-            rvalue(prog);
+            expr(prog);
     
             cn = cnalloc();
             cn->op = OPOP;
@@ -494,6 +497,30 @@ pushicon(struct codefrag *prog, unsigned val)
     cnpush(prog, cn);
 }
 
+// Add a branch op
+//
+static void
+pushbr(struct codefrag *prog, enum codeop op, struct stabent *target)
+{
+    struct codenode *cn = cnalloc();
+    cn->op = op;
+    cn->arg.target = target;
+
+    cnpush(prog, cn);
+}
+
+// Add a label
+//
+static void
+pushlbl(struct codefrag *prog, const char *lbl)
+{
+    struct codenode *cn = cnalloc();
+    cn->op = ONAMDEF;
+    strcpy(cn->arg.name, lbl);
+
+    cnpush(prog, cn);
+}
+
 // Convert the top of the stack to an rvalue
 //
 static void
@@ -542,7 +569,7 @@ eprimary(struct codefrag *prog)
 
     case TLPAREN:
         nextok();
-        type = rvalue(prog);
+        type = expr(prog);
         if (curtok->type == TRPAREN) {
             nextok();
         } else {
@@ -564,7 +591,7 @@ eprimary(struct codefrag *prog)
             if (type == LVAL) {
                 torval(prog);
             }
-            if (rvalue(prog) == LVAL) {
+            if (expr(prog) == LVAL) {
                 //torval(prog);
             }
             if (curtok->type == TRBRACKET) {
@@ -878,29 +905,85 @@ eor(struct codefrag *prog)
 
 // Parse a conditional (?:) expression
 //
-static void
-rvalcond(struct codefrag *frag)
+static int
+econd(struct codefrag *prog)
 {
-    eor(frag);
+    int type = eor(prog);
+    struct stabent *skip;
+    struct stabent *done;
 
     if (curtok->type == TQUES) {
+        skip = mklabel();
+        done = mklabel();
+
+        if (type == LVAL) {
+            torval(prog);
+        } 
         nextok();
-        rvalcond(frag);
+
+        pushbr(prog, OBZ, skip);
+        
+        if (econd(prog) == LVAL) {
+            torval(prog);
+        }
+
+        pushbr(prog, OJMP, done);
+        pushlbl(prog, skip->name);
+
         if (curtok->type == TCOLON) {
             nextok();
-            rvalcond(frag);
+            if (econd(prog) == LVAL) {
+                torval(prog);
+            }
+            pushlbl(prog, done->name);
         } else {
             err(curtok->line, "':' expected");
         }
+
+        type = RVAL;
     }
+
+    return type;
+}
+
+static int
+eassign(struct codefrag *prog)
+{
+    int type = econd(prog);
+
+    // TODO =+ et al
+    //
+    if (curtok->type == TASSIGN) {
+        if (type != LVAL) {
+            err(curtok->line, lvalex);
+        }
+
+        nextok();
+
+        if (eassign(prog) == LVAL) {
+            torval(prog);
+        }
+
+        // we need to save the result; an assignment produces 
+        // the assigned value as its result
+        //
+                                // lval rval
+        pushop(prog, ODUP);     // lval rval rval 
+        pushop(prog, OROT);     // rval lval rval
+        pushop(prog, OSTORE);   // rval  ; and value is stored in memory
+         
+        type = RVAL;
+    }
+
+    return type;
 }
 
 // Parse an rvalue (expression)
 //
 int
-rvalue(struct codefrag *frag)
+expr(struct codefrag *frag)
 {
-    rvalcond(frag);
+    return eassign(frag);
 }
 
 /******************************************************************************
@@ -933,7 +1016,8 @@ stabget(struct stabent **root, const char *name)
 
 // Find the given symbol, either in local or global scope
 //
-struct stabent *stabfind(const char *name)
+struct stabent *
+stabfind(const char *name)
 {
     struct stabent *search[2] = { local, global };
     struct stabent *stab;
@@ -947,6 +1031,22 @@ struct stabent *stabfind(const char *name)
         }
     }
     return NULL;
+}
+
+// Create a temporary label in local scope
+//
+struct stabent *mklabel(void)
+{
+    static int nextag = 1;
+    char nm[MAXNAM + 1];
+    struct stabent *sym;
+
+    sprintf(nm, "@%d", nextag++);
+    sym = stabget(&local, nm);
+
+    sym->sc = INTERNAL;
+
+    return sym;
 }
 
 /******************************************************************************
@@ -1025,6 +1125,7 @@ static struct {
     enum codeop op;
     const char *text;
 } simpleops[] = {
+    { ONOP,   "NOP" },
     { OPOP,   "POP" },
     { OROT,   "ROT" },
     { ODUP,   "DUP" },
@@ -1089,7 +1190,8 @@ cfprint(struct codefrag *frag)
             break;
 
         case OJMP:
-            printf("%sJMP %s\n", spaces, n->arg.target->name);
+        case OBZ:
+            printf("%s%s %s\n", spaces, (n->op == OJMP) ? "JMP" : "BZ", n->arg.target->name);
             break;
 
         case OPSHCON:
