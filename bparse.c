@@ -22,10 +22,8 @@ struct stabent {
     struct stabent *next;           // next in chain
     char name[MAXNAM + 1];          // symbol name
     enum storclas sc;               // storage class
-    struct codenode *exdef;         // if extrn and we have a definition
-    // if AUTO, offset into stack
-    // if INTERNAL, offset into code
-    int offset;
+    struct codenode *def;           // if extrn and we have a definition, or label: loc
+    int offset;                     // offset on stack
 };
 
 struct constant {
@@ -48,6 +46,7 @@ enum codeop {
     TNAMDEF,
     TIVAL,
     TZERO,
+    TJMP,
 };
 
 struct codenode {
@@ -57,6 +56,7 @@ struct codenode {
         char name[MAXNAM+1];
         struct ival ival;
         unsigned rept;
+        struct stabent *target;
     } arg;
 };
 
@@ -71,14 +71,18 @@ static int errf = 0;
 static struct token *curtok;
 static struct stabent *global;
 static struct stabent *local;
+static struct token savtok;
 
 static void program(struct codefrag *prog);
 static void definition(struct codefrag *prog);
 static void funcdef(struct codefrag *prog);
 static void funcparms(void);
 static void statement(struct codefrag *prog);
+static void stmtlabel(struct codefrag *prog, int line, const char *nm);
 static void datadef(struct codefrag *prog);
 static void nextok(void);
+
+static void rvalue(struct codefrag *prog);
 
 static struct stabent *stabget(struct stabent **root, const char *name);
 
@@ -144,7 +148,7 @@ definition(struct codefrag *prog)
     sym = stabget(&global, cn->arg.name);
     if (sym->sc == NEW) {
         sym->sc = EXTERN;
-        sym->exdef = cn;
+        sym->def = cn;
     } else {
         err(curtok->line, "'%s' is previously defined", cn->arg.name);
     }
@@ -154,10 +158,9 @@ definition(struct codefrag *prog)
     if (curtok->type == TLPAREN) {
         nextok();
         funcdef(prog);
-        return;
+    } else {
+        datadef(prog);
     }
-
-    datadef(prog);
 }
 
 // parse a function definition
@@ -218,9 +221,72 @@ funcparms(void)
 
 // parse a statement
 //
-void statement(struct codefrag *prog)
+void 
+statement(struct codefrag *prog)
 {
+    const char *nm, *p;
 
+    if (curtok->type == TSCOLON) {
+        nextok();
+        return;
+    }
+
+    if (curtok->type == TLBRACE) {
+        nextok();
+        for(;;) {
+            if (curtok->type == TRBRACE) {
+                nextok();
+                break;
+            }
+            statement(prog);
+        }
+        return;
+    }
+
+    switch (curtok->type) {
+        case TAUTO: break;
+        case TEXTRN: break;
+        case TCASE: break;
+        case TIF: break;
+        case TWHILE: break;
+        case TSWITCH: break;
+        case TGOTO: break;
+        case TRETURN: break;
+
+        case TNAME:
+            // this could either be the start of an rvalue or
+            // a label
+            savtok = *curtok;
+            nextok();
+            if (curtok->type == TCOLON) {
+                stmtlabel(prog, curtok->line, savtok.val.name);
+                nextok();
+            }
+            break;
+    }
+}
+
+// Assign a label at the current point in the code
+//
+void
+stmtlabel(struct codefrag *prog, int line, const char *nm)
+{
+    struct codenode *cn;
+    struct stabent *sym;
+
+    cn = cnalloc();
+    cn->op = TNAMDEF;
+    strcpy(cn->arg.name, nm);
+
+    cnpush(prog, cn);
+
+    sym = stabget(&local, nm);
+    if (sym->sc == NEW) {
+        sym->sc = INTERNAL;
+        sym->def = cn; 
+    } else {
+        err(line, "'%s' is already defined", nm);
+    }
 }
 
 // Parse a data definition
@@ -328,6 +394,175 @@ void
 nextok(void)
 {
     curtok = token();
+}
+
+/******************************************************************************
+ *
+ * Expression (rvalue) evaluation
+ *
+ */
+
+// Parse a primary expression
+//
+static void
+rvalprimary(struct codefrag *frag)
+{
+    switch (curtok->type) {
+    case TNAME: break;
+    case TINTCON: break;
+    case TSTRCON: break;
+    case TLPAREN:
+        nextok();
+        rvalue(frag);
+        if (curtok->type == TRPAREN) {
+            nextok();
+        } else {
+            err(curtok->line, "')' expected");
+        }
+        break;
+    }
+
+    for(;;) {
+        if (curtok->type == TLPAREN) {
+            // TODO function invocation
+            //
+        } else if (curtok->type = TLBRACKET) {
+            nextok();
+            rvalue(frag);
+            if (curtok->type == TRBRACKET) {
+                nextok();
+            } else {
+                err(curtok->line, "']' expected");
+            }
+        }
+    }
+}
+
+// Parse unary operators
+//
+static void
+rvalunary(struct codefrag *frag)
+{
+    if (curtok->type == TTIMES || curtok->type == TAND || curtok->type == TMINUS || curtok->type == TNOT || curtok->type == TPP || curtok->type == TMM) {
+        nextok();
+        rvalunary(frag);
+    } else {
+        rvalprimary(frag);
+        if (curtok->type == TPP || curtok->type == TMM) {
+            nextok();
+        }
+    }
+}
+
+// Parse a multiplicative expression
+//
+static void
+rvalmul(struct codefrag *frag)
+{
+    rvalunary(frag);
+    while (curtok->type == TTIMES || curtok->type == TDIV || curtok->type == TMOD) {
+        nextok();
+        rvalunary(frag);
+    }
+}
+
+// Parse an additive expression
+//
+static void
+rvaladd(struct codefrag *frag)
+{
+    rvalmul(frag);
+    while (curtok->type == TPLUS || curtok->type == TMINUS) {
+        nextok();
+        rvalmul(frag);
+    }
+}
+
+// Parse a shift expression
+//
+static void
+rvalshift(struct codefrag *frag)
+{
+    rvaladd(frag);
+    while (curtok->type == TLSHIFT || curtok->type == TRSHIFT) {
+        nextok();
+        rvaladd(frag);
+    }
+}
+
+// Parse a relational expression
+//
+static void
+rvalrel(struct codefrag *frag)
+{
+    rvalshift(frag);
+    while (curtok->type == TGT || curtok->type == TGE || curtok->type == TLE || curtok->type == TLT) {
+        nextok();
+        rvalshift(frag);
+    }
+}
+
+// Parse an equality expression
+//
+static void
+rvaleq(struct codefrag *frag)
+{
+    rvalrel(frag);
+    while (curtok->type == TEQ || curtok->type == TNE) {
+        nextok();
+        rvalrel(frag);
+    }
+}
+
+// Parse a logical AND expression
+//
+static void
+rvaland(struct codefrag *frag)
+{
+    rvaleq(frag);
+    while (curtok->type == TAND) {
+        nextok();
+        rvaleq(frag);
+    }
+}
+
+// Parse a logical OR expression
+//
+static void
+rvalor(struct codefrag *frag)
+{
+    rvaland(frag);
+    while (curtok->type == TOR) {
+        nextok();
+        rvaland(frag);
+    }
+}
+
+// Parse a conditional (?:) expression
+//
+static void
+rvalcond(struct codefrag *frag)
+{
+    rvalor(frag);
+
+    if (curtok->type == TQUES) {
+        nextok();
+        rvalcond(frag);
+        if (curtok->type == TCOLON) {
+            nextok();
+            rvalcond(frag);
+        } else {
+            err(curtok->line, "':' expected");
+        }
+    }
+}
+
+// Parse an rvalue (expression)
+//
+void
+rvalue(struct codefrag *frag)
+{
+    rvalcond(frag);
 }
 
 /******************************************************************************
@@ -449,6 +684,9 @@ cfprint(struct codefrag *frag)
         case TZERO:
             printf("%sZERO %d\n", spaces, n->arg.rept);
             break;
+
+        case TJMP:
+            printf("%sJMP %s\n", spaces, n->arg.target->name);
         }
     }
 
