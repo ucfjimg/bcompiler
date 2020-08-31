@@ -112,12 +112,15 @@ static void stmtextrn(void);
 static void stmtlabel(struct codefrag *prog, int line, const char *nm);
 static void stmtif(struct codefrag *prog);
 static void stmtwhile(struct codefrag *prog);
+static void stmtcase(struct codefrag *prog);
+static void stmtswitch(struct codefrag *prog);
 static void datadef(struct codefrag *prog);
 static void pushtok(const struct token *tok);
 static void nextok(void);
 
 static void pushop(struct codefrag *prog, enum codeop op);
 static void pushopn(struct codefrag *prog, enum codeop op, unsigned n);
+static void pushicon(struct codefrag *prog, unsigned val);
 static void pushbr(struct codefrag *prog, enum codeop op, struct stabent *target);
 static void pushlbl(struct codefrag *prog, const char *lbl);
 static void torval(struct codefrag *prog);
@@ -297,7 +300,10 @@ statement(struct codefrag *prog)
             statement(prog);
             break;
 
-        case TCASE: break;
+        case TCASE: 
+            stmtcase(prog);
+            break;
+
         case TIF:
             nextok();
             stmtif(prog);
@@ -308,7 +314,11 @@ statement(struct codefrag *prog)
             stmtwhile(prog);
             break;
 
-        case TSWITCH: break;
+        case TSWITCH: 
+            nextok();
+            stmtswitch(prog);
+            break;
+        
         case TGOTO: break;
         case TRETURN: break;
 
@@ -483,6 +493,42 @@ stmtwhile(struct codefrag *prog)
     pushlbl(prog, bottom->name);
 }
 
+// Parse a switch statement
+//
+void
+stmtswitch(struct codefrag *prog)
+{
+    // NB unlike C, B doesn't require parens around the discriminating
+    // expression
+
+    if (expr(prog) == LVAL) {
+        torval(prog);
+    }
+
+    statement(prog);
+
+    pushop(prog, OPOP);
+}
+
+// Parse a case statement
+//
+void
+stmtcase(struct codefrag *prog)
+{
+    if (curtok->type != TINTCON) {
+        err(curtok->line, "integer constant expected");
+        nextok();
+        return;
+    }
+            
+                                    // disc
+    pushop(prog, ODUP);             // disc disc
+    pushicon(prog, curtok->val.con.intcon);
+                                    // disc disc caseval
+    pushop(prog, OEQ);              // disc disc==caseval
+    
+}
+
 // Parse a data definition
 //
 void
@@ -636,7 +682,7 @@ pushopn(struct codefrag *prog, enum codeop op, unsigned n)
 
 // Push an integer constant onto the stack
 //
-static void
+void
 pushicon(struct codefrag *prog, unsigned val)
 {
     struct codenode *cn = cnalloc();

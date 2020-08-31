@@ -46,7 +46,7 @@
          j = 0;
          while((c=char(x,j++)) != '*e')
             putchar(c);
-        goto loop;
+         goto loop;
       }
       putchar('%');
       i--;
