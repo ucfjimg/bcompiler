@@ -515,6 +515,7 @@ stmtswitch(struct codefrag *prog)
 void
 stmtcase(struct codefrag *prog)
 {
+#if 0
     if (curtok->type != TINTCON) {
         err(curtok->line, "integer constant expected");
         nextok();
@@ -524,9 +525,10 @@ stmtcase(struct codefrag *prog)
                                     // disc
     pushop(prog, ODUP);             // disc disc
     pushicon(prog, curtok->val.con.intcon);
+    
                                     // disc disc caseval
     pushop(prog, OEQ);              // disc disc==caseval
-    
+#endif 
 }
 
 // Parse a data definition
