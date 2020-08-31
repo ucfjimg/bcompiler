@@ -7,6 +7,8 @@
 
 #include "lex.h"
 
+#define MAXFNARG 64
+
 enum storclas {
     NEW,
     EXTERN,
@@ -106,6 +108,7 @@ static void definition(struct codefrag *prog);
 static void funcdef(struct codefrag *prog);
 static void funcparms(void);
 static void statement(struct codefrag *prog);
+static void stmtextrn(void);
 static void stmtlabel(struct codefrag *prog, int line, const char *nm);
 static void stmtif(struct codefrag *prog);
 static void stmtwhile(struct codefrag *prog);
@@ -288,7 +291,12 @@ statement(struct codefrag *prog)
 
     switch (curtok->type) {
         case TAUTO: break;
-        case TEXTRN: break;
+        case TEXTRN: 
+            nextok();
+            stmtextrn();
+            statement(prog);
+            break;
+
         case TCASE: break;
         case TIF:
             nextok();
@@ -338,6 +346,48 @@ statement(struct codefrag *prog)
 
             break;
     }
+}
+
+// Parse an extrn statement
+//
+void
+stmtextrn()
+{
+    int done;
+    struct stabent *sym;
+
+    for (done = 0; !done;) {
+        if (curtok->type != TNAME) {
+            err(curtok->line, "name expected");
+            nextok();
+            break;
+        }
+
+        sym = stabget(&local, curtok->val.name);
+        if (sym->sc != NEW && sym->sc != EXTERN) {
+            err(curtok->line, "'%s' is already defined");
+        } else {
+            sym->sc = EXTERN;
+        }
+        nextok();
+
+        switch (curtok->type) {
+        case TCOMMA:
+            nextok();
+            break;
+
+        case TSCOLON:
+            nextok();
+            done = 1;
+            break;
+
+        default:
+            err(curtok->line, "',' or ';' expected");
+            nextok();
+        }
+    }
+
+
 }
 
 // Assign a label at the current point in the code
@@ -637,30 +687,52 @@ static const char lvalex[] = "lvalue expected";
 static int 
 ecall(struct codefrag *prog)
 {
-    int args = 1;
-    struct codefrag arg = { NULL, NULL };
+    struct codefrag args[64], t, *parg;
 
-    if (curtok->type == ')') {
-        nextok();
-        return 0;
-    }
+    int n = 0, i, done;
 
-    if (expr(&arg) == LVAL) {
-        torval(&arg);
-    }
-
-    if (curtok->type == TCOMMA) {
+    if (curtok->type == TRPAREN) {
         nextok();
-        args += ecall(prog);
-        cnappend(prog, &arg);
-    } else if (curtok->type == TRPAREN) {
-        nextok();
-        cnappend(prog, &arg);
     } else {
-        err(curtok->line, "')' expected");
+        for(done = 0; !done; n++) {
+            if (n >= MAXFNARG) {
+                parg = &t;  
+            } else {
+                parg = &args[n];
+            }
+            parg->head = parg->tail = NULL;
+            if (expr(parg) == RVAL) {
+                torval(parg);
+            }
+
+            switch (curtok->type) {
+            case TRPAREN:
+                nextok();
+                done = 1;
+                break;
+
+            case TCOMMA:
+                nextok();
+                break;
+
+            default:
+                err(curtok->line, "')' or ',' expected");
+                nextok();
+                break;
+            }
+        }
+
+        if (n > MAXFNARG) {
+            err(curtok->line, "too many function call args (max %d)", MAXFNARG);
+            n = MAXFNARG;
+        }
+
+        for (i = n-1; i >= 0; i--) {
+            cnappend(prog, &args[i]);
+        }
     }
 
-    return args;
+    return n;
 }
 
 
@@ -688,6 +760,7 @@ eprimary(struct codefrag *prog)
             type = LVAL;
         } else {
             err(curtok->line, "'%s' is not defined", curtok->val.name);
+            nextok();
         }
         break;
 
@@ -717,6 +790,7 @@ eprimary(struct codefrag *prog)
         case TLPAREN:
             // TODO is fn an lval or rval? 
 
+            nextok();
             args = ecall(prog);
             
             pushopn(prog, ODUPN, args);     // fn argn argn-1 ... arg0 fn 

@@ -30,6 +30,7 @@ here:
     while (c--)
         a = a + 2;
     a(b+1,c+2) + b();
+    putchar(a);
 }
 
 
