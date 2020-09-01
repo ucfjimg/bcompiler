@@ -87,6 +87,10 @@ enum codeop {
     ODEREF,                         // addr /deref/ value-ateaddr 
     OSTORE,                         // p1 p0 /store/     ; mem[p1] = p0
     OCALL,                          // pn pn-1 ... p0 fn /call(fn)/ pn pn-1 ... p0 retval 
+    OENTER,                         // push display pointer, set display pointer to current 
+                                    // stack, and reserve 'n' stack slots
+    OLEAVE,                         // pop 'n' stack slots, pop dp  
+    ORET,                           // return 
 
     OADD,                           // a1 a0 /add/ a1+a0
     OSUB,                           // a1 a0 /sub/ a1-a0
@@ -133,6 +137,7 @@ static struct stablist global = { NULL, NULL };
 static struct stablist *local = NULL;
 static struct stablist datasyms = { NULL, NULL };
 static struct swtch *swtchstk = NULL;
+static struct stabent *retlabel = NULL;
 
 static void program(void);
 static void definition(void);
@@ -147,6 +152,7 @@ static void stmtif(struct codefrag *prog);
 static void stmtwhile(struct codefrag *prog);
 static void stmtcase(struct codefrag *prog);
 static void stmtswitch(struct codefrag *prog);
+static void stmtreturn(struct codefrag *prog);
 static void datadef(struct stabent *sym);
 static void pushtok(const struct token *tok);
 static void nextok(void);
@@ -258,20 +264,47 @@ definition(void)
 void 
 funcdef(struct codefrag *prog)
 {
+    int size;
+    struct codenode *enter;
+
+    retlabel = mklabel();
+
     struct stabent *sym;
     if (curtok->type == TRPAREN) {
         nextok();
     } else {
         funcparms();
     }
+    
+    pushop(prog, OENTER);
+    enter = prog->tail;
 
     statement(prog);
 
+    size = 0;
     for (sym = local->head; sym; sym = sym->next) {
+        if (sym->sc == AUTO) {
+            switch (sym->type) {
+            case SIMPLE:
+                size++;
+                break;
+
+            case VECTOR:
+                size += sym->vecsize + 1;
+                break;
+            }
+        }
         if (sym->forward) {
             err(__LINE__,curtok->line, "'%s': goto target was never defined.", sym->name);
         }
     }
+
+    enter->arg.n = size;
+   
+    pushicon(prog, 0);
+    pushlbl(prog, retlabel->name);
+    pushopn(prog, OLEAVE, size);
+    pushop(prog, ORET);
 }
 
 // parse function parameters
@@ -378,7 +411,10 @@ statement(struct codefrag *prog)
             stmtgoto(prog);
             break;
 
-        case TRETURN: break;
+        case TRETURN: 
+            nextok();
+            stmtreturn(prog);
+            break;
 
         case TNAME:
             // this could either be the start of an rvalue or
@@ -697,6 +733,38 @@ stmtcase(struct codefrag *prog)
     nextok();
     if (curtok->type != TCOLON) {
         err(__LINE__,curtok->line, "':' expected");
+    }
+    nextok();
+}
+
+// Return from a function
+//
+void
+stmtreturn(struct codefrag *prog)
+{
+    if (curtok->type == TSCOLON) {
+        pushicon(prog, 0);
+    }
+
+    if (curtok->type != TLPAREN) {
+        err(__LINE__,curtok->line, "'(' or ';' expected");
+        nextok();
+        return;
+    }
+    nextok();
+
+    expr(prog);
+    pushbr(prog, OJMP, retlabel);
+
+    if (curtok->type != TRPAREN) {
+        err(__LINE__,curtok->line, "')' expected");
+        nextok();
+        return;
+    }
+    nextok();
+
+    if (curtok->type != TSCOLON) {
+        err(__LINE__,curtok->line, "';' expected");
     }
     nextok();
 }
@@ -1502,7 +1570,8 @@ stabfind(const char *name)
 
 // Create a temporary label in local scope
 //
-struct stabent *mklabel(void)
+struct stabent *
+mklabel(void)
 {
     static int nextag = 1;
     char nm[MAXNAM + 1];
@@ -1512,6 +1581,7 @@ struct stabent *mklabel(void)
     sym = stabget(local, nm);
 
     sym->sc = INTERNAL;
+    sym->type = LABEL;
 
     return sym;
 }
@@ -1615,6 +1685,7 @@ static struct {
     { ODEREF, "DEREF" },
     { OSTORE, "STORE" },
     { OCALL,  "CALL" },
+    { ORET,   "RET" },
     { OADD,   "ADD" },
     { OSUB,   "SUB" },
     { OMUL,   "MUL" },
@@ -1679,6 +1750,14 @@ cfprint(struct codefrag *frag)
 
         case OZERO:
             printf("%sZERO %d\n", spaces, n->arg.n);
+            break;
+
+        case OENTER:
+            printf("%sENTER %d\n", spaces, n->arg.n);
+            break;
+
+        case OLEAVE:
+            printf("%sLEAVE %d\n", spaces, n->arg.n);
             break;
 
         case OJMP:

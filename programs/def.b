@@ -19,12 +19,13 @@ main()
     a+3 < 47;
     a == 0;
 
+    return (1+2);
+
     goto here;
 
     a & 42 | b;
     
     e = a + 12;
-    goto there;
 
 here:
     a > 4 ? 4 : a;
@@ -46,7 +47,9 @@ here:
         case 1: putchar('1');
         case 2: putchar('2');
     }
+}
 
+f2() {
 }
 
 
