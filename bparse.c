@@ -1067,7 +1067,7 @@ eprimary(struct codefrag *prog)
             cn->arg.target = sym;
             cnpush(prog, cn);
             nextok();
-            type = LVAL;
+            type = sym->type == FUNC ? RVAL : LVAL;
         } else {
             err(__LINE__,curtok->line, "'%s' is not defined", curtok->val.name);
             nextok();
