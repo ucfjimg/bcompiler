@@ -35,7 +35,8 @@ here:
     putchar(a);
 
     switch a {
-
+        case 1: putchar('1');
+        case 2: putchar('2');
     }
 
 }

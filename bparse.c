@@ -119,13 +119,18 @@ struct codenode {
     } arg;
 };
 
+struct swtch {
+    struct swtch *prev;
+    struct stabent *fwd;
+};
 
 static char *srcfn;
 static int errf = 0;
-static struct token *curtok;
+static struct token *curtok = NULL;
 static struct stablist global = { NULL, NULL };
 static struct stablist local = { NULL, NULL };
 static struct stablist datasyms = { NULL, NULL };
+static struct swtch *swtchstk = NULL;
 
 static void program(void);
 static void definition(void);
@@ -333,6 +338,7 @@ statement(struct codefrag *prog)
             break;
 
         case TCASE: 
+            nextok();
             stmtcase(prog);
             break;
 
@@ -531,6 +537,10 @@ stmtwhile(struct codefrag *prog)
 void
 stmtswitch(struct codefrag *prog)
 {
+    struct swtch *sw = calloc(1, sizeof(struct swtch));
+    sw->prev = swtchstk;
+    swtchstk = sw;
+
     // NB unlike C, B doesn't require parens around the discriminating
     // expression
 
@@ -540,7 +550,13 @@ stmtswitch(struct codefrag *prog)
 
     statement(prog);
 
+    if (swtchstk->fwd) {
+        pushlbl(prog, swtchstk->fwd->name);
+    }
+
     pushop(prog, OPOP);
+    swtchstk = sw->prev;
+    free(sw);
 }
 
 // Parse a case statement
@@ -548,20 +564,35 @@ stmtswitch(struct codefrag *prog)
 void
 stmtcase(struct codefrag *prog)
 {
-#if 0
+    if (swtchstk == NULL) {
+        err(__LINE__,curtok->line, "case statement outside of switch");
+    }
+
     if (curtok->type != TINTCON) {
         err(__LINE__,curtok->line, "integer constant expected");
         nextok();
         return;
     }
-            
-                                    // disc
-    pushop(prog, ODUP);             // disc disc
-    pushicon(prog, curtok->val.con.intcon);
-    
-                                    // disc disc caseval
-    pushop(prog, OEQ);              // disc disc==caseval
-#endif 
+
+    if (swtchstk) {
+        if (swtchstk->fwd) {
+            pushlbl(prog, swtchstk->fwd->name);
+        }
+                                        // disc
+        pushop(prog, ODUP);             // disc disc
+        swtchstk->fwd = mklabel();
+
+        pushicon(prog, curtok->val.con.v.intcon);
+                                        // disc disc caseval
+        pushop(prog, OEQ);              // disc disc==caseval
+        pushbr(prog, OBZ, swtchstk->fwd);
+    }
+
+    nextok();
+    if (curtok->type != TCOLON) {
+        err(__LINE__,curtok->line, "':' expected");
+    }
+    nextok();
 }
 
 
