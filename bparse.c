@@ -52,6 +52,7 @@ struct stabent {
     int stkoffs;                    // if AUTO, offset onto stack
     int vecsize;                    // if VECTOR, the size
     struct ivallist ivals;          // if SIMPLE or VECTOR, initializers
+    struct stablist scope;          // if this is a FUNC, the local symbols
 };
 
 struct ival {
@@ -128,7 +129,7 @@ static char *srcfn;
 static int errf = 0;
 static struct token *curtok = NULL;
 static struct stablist global = { NULL, NULL };
-static struct stablist local = { NULL, NULL };
+static struct stablist *local = NULL;
 static struct stablist datasyms = { NULL, NULL };
 static struct swtch *swtchstk = NULL;
 
@@ -239,7 +240,7 @@ definition(void)
 
     nextok();
 
-    local.head = local.tail = NULL;
+    local = &sym->scope;
     if (curtok->type == TLPAREN) {
         sym->type = FUNC;
         nextok();
@@ -279,7 +280,7 @@ funcparms(void)
             return;
         }
 
-        sym = stabget(&local, curtok->val.name);
+        sym = stabget(local, curtok->val.name);
 
         nextok();
         
@@ -411,7 +412,7 @@ stmtextrn()
             break;
         }
 
-        sym = stabget(&local, curtok->val.name);
+        sym = stabget(local, curtok->val.name);
         if (sym->sc != NEW && sym->sc != EXTERN) {
             err(__LINE__,curtok->line, "'%s' is already defined");
         } else {
@@ -452,7 +453,7 @@ stmtlabel(struct codefrag *prog, int line, const char *nm)
 
     cnpush(prog, cn);
 
-    sym = stabget(&local, nm);
+    sym = stabget(local, nm);
     if (sym->sc == NEW) {
         sym->sc = INTERNAL;
         sym->type = LABEL;
@@ -1376,11 +1377,15 @@ stabget(struct stablist *root, const char *name)
 struct stabent *
 stabfind(const char *name)
 {
-    struct stablist *search[2] = { &local, &global };
+    struct stablist *search[2] = { local, &global };
     struct stabent *stab;
     int i;
 
     for (i = 0; i < 2; i++) {
+        if (search[i] == NULL) {
+            continue;
+        }
+
         for (stab = search[i]->head; stab; stab = stab->next) {
             if (strcmp(stab->name, name) == 0) {
                 return stab;
@@ -1399,7 +1404,7 @@ struct stabent *mklabel(void)
     struct stabent *sym;
 
     sprintf(nm, "@%d", nextag++);
-    sym = stabget(&local, nm);
+    sym = stabget(local, nm);
 
     sym->sc = INTERNAL;
 
