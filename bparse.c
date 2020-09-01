@@ -1690,7 +1690,7 @@ static struct {
     { OSUB,   "SUB" },
     { OMUL,   "MUL" },
     { ODIV,   "DIV" },
-    { OMOD,   "SUB" },
+    { OMOD,   "MOD" },
     { OSHL,   "SHL" },
     { OSHR,   "SHR" },
     { ONEG,   "NEG" },
