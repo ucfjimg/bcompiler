@@ -8,6 +8,7 @@ smag a,b;
 
 main()
 {
+    auto e;
     extrn putchar;
 
     -c[42]--;
@@ -18,6 +19,9 @@ main()
     a == 0;
 
     a & 42 | b;
+    
+    e = a + 12;
+
 here:
     a > 4 ? 4 : a;
     a = b = 1;

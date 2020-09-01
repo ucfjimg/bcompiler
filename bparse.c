@@ -139,6 +139,7 @@ static void funcdef(struct codefrag *prog);
 static void funcparms(void);
 static void statement(struct codefrag *prog);
 static void stmtextrn(void);
+static void stmtauto(void);
 static void stmtlabel(struct codefrag *prog, int line, const char *nm);
 static void stmtif(struct codefrag *prog);
 static void stmtwhile(struct codefrag *prog);
@@ -331,7 +332,12 @@ statement(struct codefrag *prog)
     }
 
     switch (curtok->type) {
-        case TAUTO: break;
+        case TAUTO: 
+            nextok();
+            stmtauto();
+            statement(prog);
+            break;
+
         case TEXTRN: 
             nextok();
             stmtextrn();
@@ -397,6 +403,53 @@ statement(struct codefrag *prog)
     }
 }
 
+// Parse an auto statement
+//
+void
+stmtauto()
+{
+    int done;
+    struct stabent *sym;
+
+    for (done = 0; !done;) {
+        if (curtok->type != TNAME) {
+            err(__LINE__,curtok->line, "name exepected");
+            nextok();
+            break;
+        }
+
+        sym = stabget(local, curtok->val.name);
+        if (sym->sc != NEW) {
+            err(__LINE__,curtok->line, "'%s' is already defined");
+        } else {
+            sym->sc = AUTO;
+            sym->type = SIMPLE;
+        }
+        nextok();
+
+        if (curtok->type == TINTCON) {
+            sym->type = VECTOR;
+            sym->vecsize = curtok->val.con.v.intcon;
+            nextok();
+        }
+
+        switch (curtok->type) {
+        case TCOMMA:
+            nextok();
+            break;
+
+        case TSCOLON:
+            nextok();
+            done = 1;
+            break;
+
+        default:
+            err(__LINE__,curtok->line, "',' or ';' expected");
+            nextok();
+        }
+    }
+}
+
 // Parse an extrn statement
 //
 void
@@ -435,8 +488,6 @@ stmtextrn()
             nextok();
         }
     }
-
-
 }
 
 // Assign a label at the current point in the code
