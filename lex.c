@@ -50,7 +50,7 @@ void
 lexinit(FILE *fin)
 {
     fp = fin;
-    advraw();
+    advance();
 }
 
 // get a token
