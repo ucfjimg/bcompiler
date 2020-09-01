@@ -11,6 +11,7 @@ main()
     auto e;
     extrn putchar;
 
+
     -c[42]--;
     ++b;
     b * c[0]; 
@@ -18,9 +19,12 @@ main()
     a+3 < 47;
     a == 0;
 
+    goto here;
+
     a & 42 | b;
     
     e = a + 12;
+    goto there;
 
 here:
     a > 4 ? 4 : a;

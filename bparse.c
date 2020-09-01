@@ -53,6 +53,7 @@ struct stabent {
     int vecsize;                    // if VECTOR, the size
     struct ivallist ivals;          // if SIMPLE or VECTOR, initializers
     struct stablist scope;          // if this is a FUNC, the local symbols
+    int forward;                    // only one thing can be forward defined: a goto label
 };
 
 struct ival {
@@ -141,6 +142,7 @@ static void statement(struct codefrag *prog);
 static void stmtextrn(void);
 static void stmtauto(void);
 static void stmtlabel(struct codefrag *prog, int line, const char *nm);
+static void stmtgoto(struct codefrag *prog);
 static void stmtif(struct codefrag *prog);
 static void stmtwhile(struct codefrag *prog);
 static void stmtcase(struct codefrag *prog);
@@ -256,6 +258,7 @@ definition(void)
 void 
 funcdef(struct codefrag *prog)
 {
+    struct stabent *sym;
     if (curtok->type == TRPAREN) {
         nextok();
     } else {
@@ -263,6 +266,12 @@ funcdef(struct codefrag *prog)
     }
 
     statement(prog);
+
+    for (sym = local->head; sym; sym = sym->next) {
+        if (sym->forward) {
+            err(__LINE__,curtok->line, "'%s': goto target was never defined.", sym->name);
+        }
+    }
 }
 
 // parse function parameters
@@ -364,7 +373,11 @@ statement(struct codefrag *prog)
             stmtswitch(prog);
             break;
         
-        case TGOTO: break;
+        case TGOTO: 
+            nextok();
+            stmtgoto(prog);
+            break;
+
         case TRETURN: break;
 
         case TNAME:
@@ -509,9 +522,50 @@ stmtlabel(struct codefrag *prog, int line, const char *nm)
         sym->sc = INTERNAL;
         sym->type = LABEL;
         sym->cptr = cn; 
+    } else if (sym->sc == INTERNAL && sym->type == LABEL) {
+        sym->forward = 0;
     } else {
         err(__LINE__,line, "'%s' is already defined", nm);
     }
+}
+
+// Goto statement
+//
+void
+stmtgoto(struct codefrag *prog)
+{
+    struct stabent *sym;
+
+    if (curtok->type != TNAME) {
+        err(__LINE__, curtok->line, "name expected");
+        nextok();
+        return;
+    }
+
+    sym = stabget(local, curtok->val.name);
+    
+    switch (sym->sc) {
+    case INTERNAL:
+        break;
+
+    case NEW:
+        sym->sc = INTERNAL;
+        sym->type = LABEL;
+        sym->forward = 1;
+        break;
+
+    default:
+        err(__LINE__,curtok->line, "'%s' is not a label", curtok->val.name);
+        break;
+    }
+
+    pushbr(prog, OJMP, sym);
+
+    nextok();
+    if (curtok->type != TSCOLON) {
+        err(__LINE__, curtok->line, "name expected");
+    }
+    nextok();
 }
 
 // Parse an if statement
