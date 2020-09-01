@@ -3,11 +3,13 @@ a;
 b 1;
 d;
 bar 'ab';
-foo[4] "abc*ndef", 42;
+foo[4] "abc*ndef", 42, a, b;
 smag a,b;
 
 main()
 {
+    extrn putchar;
+
     -c[42]--;
     ++b;
     b * c[0]; 

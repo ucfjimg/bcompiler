@@ -9,6 +9,9 @@
 
 #define MAXFNARG 64
 
+#define LVAL  0
+#define RVAL  1
+
 enum storclas {
     NEW,
     EXTERN,
@@ -16,21 +19,47 @@ enum storclas {
     INTERNAL,
 };
 
+enum objtype {
+    SIMPLE,
+    VECTOR,
+    FUNC,
+    LABEL,
+};
+
 struct codenode;
+struct ival;
+
+struct codefrag {
+    struct codenode *head, *tail;
+};
+
+struct ivallist {
+    struct ival *head, *tail;
+};
+
+struct stablist {
+    struct stabent *head, *tail;
+};
 
 struct stabent {
     struct stabent *next;           // next in chain
+    struct stabent *nextData;       // next in data decl's
     char name[MAXNAM + 1];          // symbol name
     enum storclas sc;               // storage class
-    struct codenode *def;           // if extrn and we have a definition, or label: loc
-    int offset;                     // offset on stack
+    enum objtype type;              // what is it?
+    struct codefrag fn;             // if a FUNC, the code
+    struct codenode *cptr;          // if a LABEL, a pointer to where in the code
+    int stkoffs;                    // if AUTO, offset onto stack
+    int vecsize;                    // if VECTOR, the size
+    struct ivallist ivals;          // if SIMPLE or VECTOR, initializers
 };
 
 struct ival {
-    int isconst;
+    struct ival *next;              // next in chain
+    int isconst;                    // is it a constant? else name
     union {
-        struct constant con;
-        struct stabent *name;
+        struct constant con;        // if constant, the value
+        struct stabent *name;       // else the symbol
     } v; 
 };
 
@@ -90,21 +119,16 @@ struct codenode {
     } arg;
 };
 
-struct codefrag {
-    struct codenode *head, *tail;
-};
-
-#define LVAL  0
-#define RVAL  1
 
 static char *srcfn;
 static int errf = 0;
 static struct token *curtok;
-static struct stabent *global;
-static struct stabent *local;
+static struct stablist global = { NULL, NULL };
+static struct stablist local = { NULL, NULL };
+static struct stablist datasyms = { NULL, NULL };
 
-static void program(struct codefrag *prog);
-static void definition(struct codefrag *prog);
+static void program(void);
+static void definition(void);
 static void funcdef(struct codefrag *prog);
 static void funcparms(void);
 static void statement(struct codefrag *prog);
@@ -114,7 +138,7 @@ static void stmtif(struct codefrag *prog);
 static void stmtwhile(struct codefrag *prog);
 static void stmtcase(struct codefrag *prog);
 static void stmtswitch(struct codefrag *prog);
-static void datadef(struct codefrag *prog);
+static void datadef(struct stabent *sym);
 static void pushtok(const struct token *tok);
 static void nextok(void);
 
@@ -126,7 +150,7 @@ static void pushlbl(struct codefrag *prog, const char *lbl);
 static void torval(struct codefrag *prog);
 static int expr(struct codefrag *prog);
 
-static struct stabent *stabget(struct stabent **root, const char *name);
+static struct stabent *stabget(struct stablist *root, const char *name);
 static struct stabent *stabfind(const char *name);
 static struct stabent *mklabel(void);
 
@@ -135,13 +159,15 @@ static void cnpush(struct codefrag *frag, struct codenode *node);
 static void cnappend(struct codefrag *fragl, struct codefrag *fragr);
 static void cfprint(struct codefrag *frag);
 
-static void err(int line, const char *fmt, ...);
+static void ddprint(struct stabent *sym);
+
+static void err(int sline, int line, const char *fmt, ...);
 
 int 
 main(int argc, char **argv)
 {
     FILE *fp;
-    struct codefrag prog = { NULL, NULL };
+    struct stabent *sym;
     
     if (argc != 2) {
         fprintf(stderr, "b: source-file\n");
@@ -158,55 +184,63 @@ main(int argc, char **argv)
     
     lexinit(fp);
     nextok();
-    program(&prog);
-    cfprint(&prog);
+    program();
+
+    for (sym = global.head; sym; sym = sym->next) {
+        if (sym->type == FUNC) {
+            printf("function %s:\n", sym->name);
+            cfprint(&sym->fn);
+        }
+    }
+
+    for (sym = datasyms.head; sym; sym = sym->nextData) {
+        if (sym->type != FUNC) {
+            ddprint(sym);
+        }
+    }
 }
 
 // Parse the whole program
 // 
 void 
-program(struct codefrag *prog)
+program(void)
 {
     int ch;
 
     while (!errf && curtok->type != TEOF) {
-        definition(prog);
+        definition();
     }
 }
 
 // Parse a definition
 //
 void
-definition(struct codefrag *prog)
+definition(void)
 {
-    struct codenode *cn = cnalloc();
     struct stabent *sym;
 
     if (curtok->type != TNAME) {
-        err(curtok->line, "name expected");
+        err(__LINE__,curtok->line, "name expected");
         nextok();
         return;
     }
 
-    cn->op = ONAMDEF;
-    strcpy(cn->arg.name, curtok->val.name);
-    cnpush(prog, cn);
-
-    sym = stabget(&global, cn->arg.name);
+    sym = stabget(&global, curtok->val.name);
     if (sym->sc == NEW) {
         sym->sc = EXTERN;
-        sym->def = cn;
     } else {
-        err(curtok->line, "'%s' is previously defined", cn->arg.name);
+        err(__LINE__,curtok->line, "'%s' is previously defined", curtok->val.name);
     }
 
     nextok();
 
+    local.head = local.tail = NULL;
     if (curtok->type == TLPAREN) {
+        sym->type = FUNC;
         nextok();
-        funcdef(prog);
+        funcdef(&sym->fn);
     } else {
-        datadef(prog);
+        datadef(sym);
     }
 }
 
@@ -215,8 +249,6 @@ definition(struct codefrag *prog)
 void 
 funcdef(struct codefrag *prog)
 {
-    local = NULL;
-
     if (curtok->type == TRPAREN) {
         nextok();
     } else {
@@ -238,7 +270,7 @@ funcparms(void)
     for(;;) {
         if (curtok->type != TNAME) {
             nextok();
-            err(curtok->line, "name expected");
+            err(__LINE__,curtok->line, "name expected");
             return;
         }
 
@@ -248,15 +280,15 @@ funcparms(void)
         
         if (sym->sc == NEW) {
             sym->sc = AUTO;
-            sym->offset = nextarg++;
+            sym->stkoffs = nextarg++;
         } else {
-            err(curtok->line, "'%s' is multiply defined", sym->name);
+            err(__LINE__,curtok->line, "'%s' is multiply defined", sym->name);
         }
 
         if (curtok->type == TRPAREN) {
             break;
         } else if (curtok->type != TCOMMA) {
-            err(curtok->line, "')' or ',' expected");
+            err(__LINE__,curtok->line, "')' or ',' expected");
             break;
         }
 
@@ -351,7 +383,7 @@ statement(struct codefrag *prog)
             if (curtok->type == TSCOLON) {
                 nextok();
             } else {
-                err(curtok->line, "';' expected");
+                err(__LINE__,curtok->line, "';' expected");
             }
 
             break;
@@ -368,14 +400,14 @@ stmtextrn()
 
     for (done = 0; !done;) {
         if (curtok->type != TNAME) {
-            err(curtok->line, "name expected");
+            err(__LINE__,curtok->line, "name expected");
             nextok();
             break;
         }
 
         sym = stabget(&local, curtok->val.name);
         if (sym->sc != NEW && sym->sc != EXTERN) {
-            err(curtok->line, "'%s' is already defined");
+            err(__LINE__,curtok->line, "'%s' is already defined");
         } else {
             sym->sc = EXTERN;
         }
@@ -392,7 +424,7 @@ stmtextrn()
             break;
 
         default:
-            err(curtok->line, "',' or ';' expected");
+            err(__LINE__,curtok->line, "',' or ';' expected");
             nextok();
         }
     }
@@ -417,9 +449,10 @@ stmtlabel(struct codefrag *prog, int line, const char *nm)
     sym = stabget(&local, nm);
     if (sym->sc == NEW) {
         sym->sc = INTERNAL;
-        sym->def = cn; 
+        sym->type = LABEL;
+        sym->cptr = cn; 
     } else {
-        err(line, "'%s' is already defined", nm);
+        err(__LINE__,line, "'%s' is already defined", nm);
     }
 }
 
@@ -432,7 +465,7 @@ stmtif(struct codefrag *prog)
     struct stabent *donepart = mklabel();
     
     if (curtok->type != TLPAREN) {
-        err(curtok->line, "'(' expected");
+        err(__LINE__,curtok->line, "'(' expected");
         return;
     }
     nextok();
@@ -442,7 +475,7 @@ stmtif(struct codefrag *prog)
     }
 
     if (curtok->type != TRPAREN) {
-        err(curtok->line, "')' expected");
+        err(__LINE__,curtok->line, "')' expected");
         return;
     }
     nextok();
@@ -472,7 +505,7 @@ stmtwhile(struct codefrag *prog)
     pushlbl(prog, top->name);
 
     if (curtok->type != TLPAREN) {
-        err(curtok->line, "'(' expected");
+        err(__LINE__,curtok->line, "'(' expected");
         return;
     }
     nextok();
@@ -482,7 +515,7 @@ stmtwhile(struct codefrag *prog)
     }
 
     if (curtok->type != TRPAREN) {
-        err(curtok->line, "')' expected");
+        err(__LINE__,curtok->line, "')' expected");
         return;
     }
     nextok();
@@ -517,7 +550,7 @@ stmtcase(struct codefrag *prog)
 {
 #if 0
     if (curtok->type != TINTCON) {
-        err(curtok->line, "integer constant expected");
+        err(__LINE__,curtok->line, "integer constant expected");
         nextok();
         return;
     }
@@ -531,102 +564,126 @@ stmtcase(struct codefrag *prog)
 #endif 
 }
 
+
+static void
+pushival(struct ivallist *l, struct ival *i)
+{
+    if (l->head == NULL) {
+        l->head = i;
+    } else {
+        l->tail->next = i;
+    }
+    l->tail = i;
+}
+
+static struct ival *
+ivalsym(struct stabent *sym)
+{
+    struct ival *i = calloc(1, sizeof(struct ival));
+    i->isconst = 0;
+    i->v.name = sym;
+    return i;
+}
+
+static struct ival *
+ivalcon(struct constant *con)
+{
+    struct ival *i = calloc(1, sizeof(struct ival));
+    i->isconst = 1;
+    i->v.con = *con;
+    return i;
+}
+
 // Parse a data definition
 //
 void
-datadef(struct codefrag *prog)
+datadef(struct stabent *sym)
 {
+    struct stabent *refsym;
+    struct ival iv;
+    int emitted = 0;
     struct constant con;
-    struct codenode *cn;
-    int isvec = 0;
-    unsigned size = 0;
-    unsigned emitted = 0;
-    int ch;
-
+    
+    sym->type = SIMPLE;
     if (curtok->type == TLBRACKET) {
+        sym->type = VECTOR;
+
         nextok();
         if (curtok->type != TRBRACKET && curtok->type != TINTCON) {
-            err(curtok->line, "']' or integer constant expected");
+            err(__LINE__,curtok->line, "']' or integer constant expected");
             nextok();
             return;
         }
 
         if (curtok->type == TINTCON) {
-            size = curtok->val.con.v.intcon;
+            sym->vecsize = curtok->val.con.v.intcon;
             nextok();
         }
 
         if (curtok->type != TRBRACKET) {
-            err(curtok->line, "']' expected");
+            err(__LINE__,curtok->line, "']' expected");
             nextok();
             return;
         } 
 
         nextok();
-        isvec = 1;
     }
 
-    // TODO if it's a vector, the symbol points to a word in memory,
-    // which points to the base of the vector!
-
-    if (curtok->type == TSCOLON) {
-        if (!isvec) {
-            cn = cnalloc();
-            cn->op = OIVAL;
-            cn->arg.ival.isconst = 1;
-            cn->arg.ival.v.con.strlen = INTCONST;
-            cn->arg.ival.v.con.v.intcon = 0;
-            cnpush(prog, cn);
-            emitted++;
-        }
-        nextok();
-    } else {
-        for(;;) {
-            cn = cnalloc();
-            cn->op = OIVAL;
-            
-            switch (curtok->type) {
-            case TNAME:
-                cn->arg.ival.isconst = 0;
-                cn->arg.ival.v.name = stabget(&global, curtok->val.name);
-                break;
+    while (curtok->type != TSCOLON) {
+        switch (curtok->type) {
+        case TNAME:
+            refsym = stabfind(curtok->val.name);
+            if (refsym == NULL) {
+                err(__LINE__,curtok->line, "'%s' is not defined", curtok->val.name);
+            } else {
+                pushival(&sym->ivals, ivalsym(refsym));
+            }
+            break;
                 
-            case TINTCON:
-            case TSTRCON:
-                cn->arg.ival.isconst = 1;
-                cn->arg.ival.v.con = curtok->val.con;
-                break;
+        case TINTCON:
+        case TSTRCON:
+            pushival(&sym->ivals, ivalcon(&curtok->val.con));
+            break;
 
-            default:
-                err(curtok->line, "name or constant expected");
-                nextok();
-                return;
-            }
-
+        default:
+            err(__LINE__,curtok->line, "name or constant expected");
             nextok();
+            return;
+        }
+
+        nextok();
             
-            cnpush(prog, cn);
-            emitted++;
+        emitted++;
 
-            if (curtok->type == TSCOLON) {
-                nextok();
-                break;
-            } else if (curtok->type == TCOMMA) {
-                nextok();
-                continue;
-            }
-
-            err(curtok->line, "';' or ',' expected");
+        if (curtok->type == TSCOLON) {
+            break;
+        } else if (curtok->type != TCOMMA) {
+            err(__LINE__,curtok->line, "';' or ',' expected");
             break; 
         }
+        nextok();
     }
 
-    if (size > emitted) {
-        cn = cnalloc();
-        cn->op = OZERO;
-        cn->arg.n = size - emitted;
-        cnpush(prog, cn);
+    nextok();
+
+    if (sym->type == SIMPLE && emitted == 0) {
+        con.strlen = INTCONST;
+        con.v.intcon = 0;
+        pushival(&sym->ivals, ivalcon(&con));
+    } 
+
+    if (sym->type == VECTOR) {
+        if (emitted > sym->vecsize) {
+            sym->vecsize = emitted;
+        }
     }
+
+    if (datasyms.head == NULL) {
+        datasyms.head = sym;
+    } else {
+        datasyms.tail->nextData = sym;
+    }
+    datasyms.tail = sym;
 }
 
 #define BAKTOK 2
@@ -764,14 +821,14 @@ ecall(struct codefrag *prog)
                 break;
 
             default:
-                err(curtok->line, "')' or ',' expected");
+                err(__LINE__,curtok->line, "')' or ',' expected");
                 nextok();
                 break;
             }
         }
 
         if (n > MAXFNARG) {
-            err(curtok->line, "too many function call args (max %d)", MAXFNARG);
+            err(__LINE__,curtok->line, "too many function call args (max %d)", MAXFNARG);
             n = MAXFNARG;
         }
 
@@ -807,7 +864,7 @@ eprimary(struct codefrag *prog)
             nextok();
             type = LVAL;
         } else {
-            err(curtok->line, "'%s' is not defined", curtok->val.name);
+            err(__LINE__,curtok->line, "'%s' is not defined", curtok->val.name);
             nextok();
         }
         break;
@@ -828,7 +885,7 @@ eprimary(struct codefrag *prog)
         if (curtok->type == TRPAREN) {
             nextok();
         } else {
-            err(curtok->line, "')' expected");
+            err(__LINE__,curtok->line, "')' expected");
         }
         break;
     }
@@ -861,7 +918,7 @@ eprimary(struct codefrag *prog)
             if (curtok->type == TRBRACKET) {
                 nextok();
             } else {
-                err(curtok->line, "']' expected");
+                err(__LINE__,curtok->line, "']' expected");
             }
             
             pushop(prog, OADD);
@@ -872,7 +929,7 @@ eprimary(struct codefrag *prog)
         case TMM:
             // post-increment, post-decrement
             if (type != LVAL) {
-                err(curtok->line, lvalex);
+                err(__LINE__,curtok->line, lvalex);
             } else {
                                         // lval
                 pushop(prog, ODUP);     // lval lval
@@ -919,7 +976,7 @@ eunary(struct codefrag *prog)
 
         case TADDR:
             if (type == RVAL) {
-                err(curtok->line, lvalex);
+                err(__LINE__,curtok->line, lvalex);
             } else {
                 type = RVAL;
             }
@@ -949,7 +1006,7 @@ eunary(struct codefrag *prog)
 
                 type = RVAL;
             } else {
-                err(curtok->line, lvalex);
+                err(__LINE__,curtok->line, lvalex);
             }
             break;
         }
@@ -1201,7 +1258,7 @@ econd(struct codefrag *prog)
             }
             pushlbl(prog, done->name);
         } else {
-            err(curtok->line, "':' expected");
+            err(__LINE__,curtok->line, "':' expected");
         }
 
         type = RVAL;
@@ -1219,7 +1276,7 @@ eassign(struct codefrag *prog)
     //
     if (curtok->type == TASSIGN) {
         if (type != LVAL) {
-            err(curtok->line, lvalex);
+            err(__LINE__,curtok->line, lvalex);
         }
 
         nextok();
@@ -1259,11 +1316,11 @@ expr(struct codefrag *frag)
 // get or create a symbol of the given name
 //
 struct stabent *
-stabget(struct stabent **root, const char *name)
+stabget(struct stablist *root, const char *name)
 {
     struct stabent *p;
 
-    for (p = *root; p; p = p->next) {
+    for (p = root->head; p; p = p->next) {
         if (strcmp(p->name, name) == 0) {
             return p;
         }
@@ -1272,8 +1329,13 @@ stabget(struct stabent **root, const char *name)
     p = calloc(1, sizeof(struct stabent));
     strcpy(p->name, name);
     p->sc = NEW;
-    p->next = *root;
-    *root = p;
+
+    if (root->head == NULL) {
+        root->head = p;
+    } else {
+        root->tail->next = p;
+    }
+    root->tail = p;
 
     return p;
 }
@@ -1283,12 +1345,12 @@ stabget(struct stabent **root, const char *name)
 struct stabent *
 stabfind(const char *name)
 {
-    struct stabent *search[2] = { local, global };
+    struct stablist *search[2] = { &local, &global };
     struct stabent *stab;
     int i;
 
     for (i = 0; i < 2; i++) {
-        for (stab = search[i]; stab; stab = stab->next) {
+        for (stab = search[i]->head; stab; stab = stab->next) {
             if (strcmp(stab->name, name) == 0) {
                 return stab;
             }
@@ -1468,7 +1530,7 @@ cfprint(struct codefrag *frag)
 
         case OPOPN:
             printf("%sPOPN %d\n", spaces, n->arg.n);
-            break;
+             break;
 
         case ODUPN:
             printf("%sDUPN %d\n", spaces, n->arg.n);
@@ -1494,6 +1556,30 @@ cfprint(struct codefrag *frag)
     }
 }
 
+// Print a symbol that represents data
+//
+void 
+ddprint(struct stabent *sym)
+{
+    struct ival *iv;
+    int i;
+    char idx[20];
+
+    printf("%s", sym->name);
+    if (sym->type == VECTOR) {
+        printf("[%u]", sym->vecsize);
+    }
+    printf("\n");
+    for (i = 0, iv = sym->ivals.head; iv; i++, iv = iv->next) {
+        if (iv->isconst) {
+            sprintf(idx, "[%d]", i);
+            prcon("  ", idx, &iv->v.con);
+        } else {
+            printf("  [%d] %s\n", i, iv->v.name->name);
+        }
+    }
+}
+
 /******************************************************************************
  *
  * Low level lexical routines
@@ -1504,13 +1590,13 @@ cfprint(struct codefrag *frag)
 // has failed.
 //
 void 
-err(int l, const char *fmt, ...)
+err(int sl,int l, const char *fmt, ...)
 {
     fprintf(stderr, "%s:%d: ", srcfn, l);
     va_list args;
     va_start(args, fmt);
     vfprintf(stderr, fmt, args);
     va_end(args);
-    fprintf(stderr, "\n");
+    fprintf(stderr, " (%d)\n", sl);
     errf = 1;
 }
