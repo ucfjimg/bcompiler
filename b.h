@@ -45,6 +45,7 @@ struct stabent {
     struct ivallist ivals;          // if SIMPLE or VECTOR, initializers
     struct stablist scope;          // if this is a FUNC, the local symbols
     int forward;                    // only one thing can be forward defined: a goto label
+    int labpc;                      // if label, where does it point?
 };
 
 struct ival {
@@ -62,8 +63,6 @@ struct ival {
 //
 enum codeop {
     ONAMDEF,                        // define a name for an address
-    OIVAL,                          // store a constant in memory (data def)
-    OZERO,                          // put 'n' zeroes in memory (data def)
     OJMP,                           // jump to a code location
     OBZ,                            // branch if top of stack is zero, and pops condition
     OPOP,                           // p0 /pop/ 
@@ -106,6 +105,7 @@ enum codeop {
 
 struct codenode {
     struct codenode *next;
+    int pc;
     enum codeop op;
     union {
         char name[MAXNAM+1];

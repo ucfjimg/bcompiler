@@ -71,6 +71,7 @@ main(int argc, char **argv)
 {
     FILE *fp;
     struct stabent *sym;
+    char *outfn;
     
     if (argc != 2) {
         fprintf(stderr, "b: source-file\n");
@@ -89,6 +90,19 @@ main(int argc, char **argv)
     nextok();
     program();
 
+    if (errf) {
+        return 1;
+    }
+
+    if (fp == stdin) {
+        return bifwrite("stdin.o", global);
+    } else {
+        outfn = malloc(strlen(srcfn) + 5);
+        sprintf(outfn, "%s.o", srcfn);
+        return bifwrite(outfn, global);
+    }
+
+#if 0
     for (sym = global.head; sym; sym = sym->next) {
         if (sym->type == FUNC) {
             printf("function %s:\n", sym->name);
@@ -101,6 +115,7 @@ main(int argc, char **argv)
             ddprint(sym);
         }
     }
+#endif
 }
 
 // Parse the whole program
@@ -1675,24 +1690,12 @@ cfprint(struct codefrag *frag)
             printf("%s:\n", n->arg.name);
             break;
 
-        case OIVAL:
-            if (n->arg.ival.isconst) {
-                prcon(spaces, "IVAL", &n->arg.ival.v.con);
-            } else {
-                printf("%sIVAL extrn %s\n", spaces, n->arg.ival.v.name->name);
-            }
-            break;
-
         case OPOPN:
             printf("%sPOPN %d\n", spaces, n->arg.n);
              break;
 
         case ODUPN:
             printf("%sDUPN %d\n", spaces, n->arg.n);
-            break;
-
-        case OZERO:
-            printf("%sZERO %d\n", spaces, n->arg.n);
             break;
 
         case OENTER:
