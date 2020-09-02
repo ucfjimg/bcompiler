@@ -1011,7 +1011,7 @@ ecall(struct codefrag *prog)
                 parg = &args[n];
             }
             parg->head = parg->tail = NULL;
-            if (expr(parg) == RVAL) {
+            if (expr(parg) == LVAL) {
                 torval(parg);
             }
 

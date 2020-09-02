@@ -8,7 +8,7 @@
    where the bases of the digits are 2, 3, 4, ... */
 
    main() {
-      extrn putchar, n v;
+      extrn putchar, n, v;
       auto i, c, col, a;
 
       i = col = 0;
@@ -19,7 +19,7 @@
          a = n+1;
          c = i = 0;
          while(i<n) {
-            c += v[i]*10;
+            c =+ v[i]*10;
             v[i++] = c%a;
             c =/ a--;
          }
