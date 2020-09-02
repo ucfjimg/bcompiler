@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-extern err(int line, const char *fmt, ...);
+extern err(int sl, int line, const char *fmt, ...);
 
 int line = 1;
 static int currch;
@@ -34,6 +34,7 @@ static void intcon(struct token *t);
 static void charcon(struct token *t);
 static void strcon(struct token *t);
 static void punc(struct token *t);
+static void assigns(struct token *t);
 static int escape(int ch);
 
 static int advskipws(void);
@@ -104,7 +105,7 @@ name(struct token *t)
     if (i <= MAXNAM) {
         t->val.name[i] = 0;
     } else {
-        err(line, "name too long");
+        err(__LINE__,line, "name too long");
     }
 
     t->type = TNAME;
@@ -147,13 +148,13 @@ charcon(struct token *t)
 
     for (i = 0; i < 2; i++, advraw()) {
         if (currch == EOF) {
-            err(line, "unterminated char constant");
+            err(__LINE__,line, "unterminated char constant");
             break;
         }
 
         if (currch == '\'') {
             if (i == 0) {
-                err(line, "empty char constant");
+                err(__LINE__,line, "empty char constant");
             }
             break;
         }
@@ -167,7 +168,7 @@ charcon(struct token *t)
     }
 
     if (i == 2 && currch != '\'') {
-        err(line, "unterminated char constant");
+        err(__LINE__,line, "unterminated char constant");
         return;
     }
 
@@ -189,7 +190,7 @@ strcon(struct token *t)
 
     for(advraw();; advraw()) {
         if (currch == EOF) {
-            err(here, "unterminated string constant");
+            err(__LINE__,here, "unterminated string constant");
             break;
         }
 
@@ -214,7 +215,7 @@ strcon(struct token *t)
     }
 
     if (idx > MAXSTR) {
-        err(here, "string constant too long (max %d).", MAXSTR);
+        err(__LINE__,here, "string constant too long (max %d).", MAXSTR);
     }
 
     t->type = TSTRCON;
@@ -366,17 +367,101 @@ punc(struct token *tok)
     case '=':
         advraw();
         tok->type = TASSIGN;
-        if (currch == '=') {
-            advraw();
-            tok->type = TEQ;
-        }
+        assigns(tok);
         break;
 
     default:
         tok->type = TERR;
-        err(line, "invalid character '%c' in source", currch);
+        err(__LINE__,line, "invalid character '%c' in source", currch);
         advraw();
         break;
+    }
+}
+
+// Check for =x style assignment operators
+//
+void 
+assigns(struct token *tok)
+{
+    switch (currch) {
+    case '=':
+        tok->type = TEQ;
+        advraw();
+        if (currch == '=') {
+            tok->type = TAEQ;
+            advraw();
+        }
+        break;
+
+    case '!':
+        advraw();
+        if (currch == '=') {
+            tok->type = TANE;
+            advraw();
+        } else {
+            err(__LINE__,line, "'=!' is not a valid token");
+        }
+        break;
+
+    case '<':
+        tok->type = TALT;
+        advraw();
+        if (currch == '=') {
+            tok->type = TALE;
+            advraw();
+        } else if (currch == '<') {
+            tok->type = TALSHIFT;
+            advraw();
+        }
+        break;
+
+    case '>':
+        tok->type = TAGT;
+        advraw();
+        if (currch == '=') {
+            tok->type = TAGE;
+            advraw();
+        } else if (currch == '<') {
+            tok->type = TARSHIFT;
+            advraw();
+        }
+        break;
+
+    case '+':
+        tok->type = TAPLUS;
+        advraw();
+        break;
+
+    case '-':
+        tok->type = TAMINUS;
+        advraw();
+        break;
+
+    case '|':
+        tok->type = TAOR;
+        advraw();
+        break;
+
+    case '&':
+        tok->type = TAAND;
+        advraw();
+        break;
+
+    case '%':
+        tok->type = TAMOD;
+        advraw();
+        break;
+
+    case '*':
+        tok->type = TATIMES;
+        advraw();
+        break;
+
+    case '/':
+        tok->type = TADIV;
+        advraw();
+        break;
+
     }
 }
 
@@ -397,7 +482,7 @@ escape(int ch)
         return ch;
 
     default:
-        err(line, "invalid escape '%c'", ch);
+        err(__LINE__,line, "invalid escape '%c'", ch);
         break;
     }
 
@@ -447,7 +532,7 @@ advance()
     
     for(star = 0;;) {
         if ((currch = get()) == EOF) {
-            err(here, "unterminated comment.");
+            err(__LINE__,here, "unterminated comment.");
             break;
         }
 

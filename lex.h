@@ -56,6 +56,23 @@ enum toktyp {
     TCOLON,
 
     TASSIGN,
+    TAFIRST = TASSIGN,
+    TAAND,
+    TAOR,
+    TAEQ,
+    TANE,
+    TALT,
+    TALE,
+    TAGT,
+    TAGE,
+    TALSHIFT,
+    TARSHIFT,
+    TAMOD,
+    TATIMES,
+    TADIV,
+    TAMINUS,
+    TAPLUS,
+    TALAST = TAPLUS,
 
 
     // constants

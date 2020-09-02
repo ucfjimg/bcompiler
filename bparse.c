@@ -1472,22 +1472,72 @@ econd(struct codefrag *prog)
     return type;
 }
 
+static struct {
+    enum toktyp assntok;
+    enum codeop binop;
+} assneqs[] = {
+    { TAPLUS,   OADD },
+    { TAMINUS,  OSUB },
+    { TAAND,    OAND },
+    { TAOR,     OOR },
+    { TAEQ,     OEQ },
+    { TANE,     ONE },
+    { TALT,     OLT },
+    { TALE,     OLE },
+    { TAGT,     OGT },
+    { TAGE,     OGE },
+    { TALSHIFT, OSHL },
+    { TARSHIFT, OSHR },
+    { TAMOD,    OMOD },
+    { TATIMES,  OMUL },
+    { TADIV,    ODIV },
+};
+
+static const int nassneqs = sizeof(assneqs) / sizeof(assneqs[0]);
+
+static enum codeop assnop(int line, enum toktyp type)
+{
+    int i;
+
+    for (i = 0; i < nassneqs; i++) {
+        if (assneqs[i].assntok == type) {
+            return assneqs[i].binop;
+        }
+    }
+
+    err(__LINE__,line, "internal compiler error");
+    return OADD;
+}
+
 static int
 eassign(struct codefrag *prog)
 {
     int type = econd(prog);
+    enum toktyp tt;
 
     // TODO =+ et al
     //
-    if (curtok->type == TASSIGN) {
+    if (curtok->type >= TAFIRST && curtok->type <= TALAST) {
         if (type != LVAL) {
             err(__LINE__,curtok->line, lvalex);
         }
+        tt = curtok->type;
 
         nextok();
 
+        if (tt != TASSIGN) {
+            pushop(prog, ODUP);  // lval lval
+            torval(prog);        // lval rval-left
+        }
+
         if (eassign(prog) == LVAL) {
             torval(prog);
+        }
+
+        if (tt != TASSIGN) {
+                                // lval rval-left rval-right
+            pushop(prog, assnop(curtok->line, tt));
+                                // lval rval
         }
 
         // we need to save the result; an assignment produces 

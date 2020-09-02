@@ -47,6 +47,9 @@ here:
         case 1: putchar('1');
         case 2: putchar('2');
     }
+
+    b =+ 2;
+    b =- 2;
 }
 
 f2() {
