@@ -744,6 +744,9 @@ stmtreturn(struct codefrag *prog)
 {
     if (curtok->type == TSCOLON) {
         pushicon(prog, 0);
+        pushbr(prog, OJMP, retlabel);
+        nextok();
+        return;
     }
 
     if (curtok->type != TLPAREN) {
@@ -1010,7 +1013,9 @@ ecall(struct codefrag *prog)
             } else {
                 parg = &args[n];
             }
+
             parg->head = parg->tail = NULL;
+
             if (expr(parg) == LVAL) {
                 torval(parg);
             }
