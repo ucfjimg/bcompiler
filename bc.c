@@ -74,7 +74,7 @@ main(int argc, char **argv)
     char *outfn;
     
     if (argc != 2) {
-        fprintf(stderr, "b: source-file\n");
+        fprintf(stderr, "bc: source-file\n");
         return 1;
     }
 
