@@ -95,14 +95,18 @@ main(int argc, char **argv)
     }
 
     if (fp == stdin) {
-        return bifwrite("stdin.o", global);
+        if (bifwrite("stdin.o", global) != 0) {
+            return 1;
+        }
     } else {
         outfn = malloc(strlen(srcfn) + 5);
         sprintf(outfn, "%s.o", srcfn);
-        return bifwrite(outfn, global);
+        if (bifwrite(outfn, global) != 0) {
+            return 1;
+        }
     }
 
-#if 0
+#if 1
     for (sym = global.head; sym; sym = sym->next) {
         if (sym->type == FUNC) {
             printf("function %s:\n", sym->name);
@@ -116,6 +120,7 @@ main(int argc, char **argv)
         }
     }
 #endif
+    return 0;
 }
 
 // Parse the whole program

@@ -23,7 +23,6 @@ static void wrchars(const char *str, int bytes);
 static int  strpadd(const char *str, int len);
 static int  wrstrp(void);
 
-#define INTSIZE 2
 
 #define WRINT(v) wrbytes(v, INTSIZE)
 #define WRBYTE(v) wrbytes(v, 1)

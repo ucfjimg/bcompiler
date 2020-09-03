@@ -3,6 +3,8 @@
 
 #include "lex.h"
 
+#define INTSIZE 2
+
 enum storclas {
     NEW,
     EXTERN,
