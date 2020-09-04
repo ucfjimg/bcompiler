@@ -3,6 +3,7 @@
 #
     .text
 
+    .align 4
     .global _exit
 _exit:
     .int NCALL, exit
@@ -10,13 +11,15 @@ _exit:
 
     .local exit
 exit:
-    mov 8(%ebp), %ebx   # return address
+    mov 4(%esp), %ebx   # return address
     mov $1, %eax        # exit syscall
     int $0x80
     
+    .align 4
     .global _putchar
 _putchar:
     .int NCALL, putchar
+    .int RET
 
     .local putchar
 outch:
@@ -25,7 +28,7 @@ outch:
 putchar:
     push %ecx
     push %ebx
-    mov 8(%ebp), %eax
+    mov 4(%esp), %eax
     mov %al, outch
 
     mov $4, %eax        # write system
@@ -36,4 +39,5 @@ putchar:
 
     pop %ebx
     pop %ecx
+    push %eax
     jmp *(%ecx)

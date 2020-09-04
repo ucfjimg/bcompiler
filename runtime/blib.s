@@ -17,7 +17,7 @@
 CALL:
     add $4, %ecx        # past the instruction
     pop %eax            # %eax is the shifted entry address
-    shr $2, %eax        # %eax to address
+    shl $2, %eax        # %eax to address
     push %ecx           # return address
     mov %eax, %ecx      # %ecx is function entry
     jmp *(%ecx)
@@ -122,13 +122,16 @@ PSHSYM:
     jmp *(%ecx)
 
 #
-# Push the given auto variable or argument onto the stack
+# Push the lvalue of the given auto variable or argument 
+# onto the stack
 #
     .global PSHAUTO
 PSHAUTO:
     add $4, %ecx        # -> arg (stack space)
     movl (%ecx), %eax
-    push (%ebp,%eax) 
+    add %ebp, %eax
+    shr $2, %eax
+    push %eax
     add $4, %ecx        
     jmp *(%ecx)
 
@@ -151,6 +154,7 @@ DEREF:
 STORE:
     pop %eax            # value to store
     pop %edx            # pointer
+    shl $2, %edx
     movl %eax, (%edx)
     add $4, %ecx       
     jmp *(%ecx)
@@ -162,12 +166,14 @@ STORE:
 #
     .global ROT
 ROT:
-    pop %eax            # a2
+    pop %eax            # a0
     pop %edx            # a1
-    pop %esi            # a0
-    push %esi
-    push %eax
-    push %edx
+    pop %esi            # a2
+
+    push %eax           # a0
+    push %esi           # a2
+    push %edx           # a1
+
     add $4, %ecx       
     jmp *(%ecx)
 
@@ -332,9 +338,11 @@ EQ:
     pop %eax
     pop %edx
     push $0
+    cmp %edx, %eax
     setz (%esp)
     add $4, %ecx        # past argument
-    ret
+    jmp *(%ecx) 
+
 #
 # a1 a0 [NE] a1!=a0 ? 1 : 0
 #
@@ -343,9 +351,10 @@ NE:
     pop %eax
     pop %edx
     push $0
+    cmp %edx, %eax
     setnz (%esp)
     add $4, %ecx        # past argument
-    ret
+    jmp *(%ecx) 
 
 #
 # a1 a0 [LT] a1<a0 ? 1 : 0
@@ -355,8 +364,9 @@ LT:
     pop %eax
     pop %edx
     push $0
+    cmp %edx, %eax
     setl (%esp)
     add $4, %ecx        # past argument
-    ret
+    jmp *(%ecx) 
 
 
