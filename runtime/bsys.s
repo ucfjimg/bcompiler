@@ -3,8 +3,8 @@
 #
     .text
 
-    .global .exit
-.exit:
+    .global _exit
+_exit:
     .int NCALL, exit
 
 
@@ -14,8 +14,8 @@ exit:
     mov $1, %eax        # exit syscall
     int $0x80
     
-    .global .putchar
-.putchar:
+    .global _putchar
+_putchar:
     .int NCALL, putchar
 
     .local putchar

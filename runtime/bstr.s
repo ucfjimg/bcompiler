@@ -3,8 +3,8 @@
 #
     .text
 
-    .global .char
-.char:
+    .global _char
+_char:
     .int NCALL, char
 
     .local char

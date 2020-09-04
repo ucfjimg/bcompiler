@@ -4,12 +4,12 @@
     .global _start
 _start:
     
-    leal .main, %ecx
+    leal _main, %ecx
     pushl $exit
     jmp *(%ecx)
 
 exit:
     .int PSHCON, 0
-    .int .exit
+    .int _exit
     .int CALL
 

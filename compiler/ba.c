@@ -319,7 +319,7 @@ wrcode(void)
             switch (op) {
             case OJMP:
             case OBZ:
-                fprintf(fout, "    .int %s, .%s+%u\n", (op == OJMP) ? "JMP" : "BZ", fn, 4 * RDINT());
+                fprintf(fout, "    .int %s, _%s+%u\n", (op == OJMP) ? "JMP" : "BZ", fn, 4 * RDINT());
                 break;
 
             case OPOPN:
@@ -351,7 +351,7 @@ wrcode(void)
             case OPSHSYM:
                 if (RDBYTE() == 0) {
                     // extrn
-                    fprintf(fout, "    .int PSHSYM, .%s\n", extrns + (MAXNAM + 1) * RDINT());
+                    fprintf(fout, "    .int PSHSYM, _%s\n", extrns + (MAXNAM + 1) * RDINT());
                 } else {
                     offs = RDINT();
                     fprintf(fout, "    .int PSHAUTO, %d\n", adjauto(offs));    
@@ -426,8 +426,8 @@ wrname(const char *name)
     fprintf(
         fout,
             "    .align 4\n"
-            "    .global .%s\n"
-            ".%s:\n",
+            "    .global _%s\n"
+            "_%s:\n",
         name,
         name);
 }

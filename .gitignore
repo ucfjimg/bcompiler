@@ -5,3 +5,10 @@ tags
 *.i
 a.out
 *.icode
+*.a
+
+# while debugging
+runtime/hello.s
+runtime/printf.s
+runtime/printn.s
+
