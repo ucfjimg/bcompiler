@@ -49,7 +49,7 @@ bifwrite(const char *fn, struct stabent *syms)
 
     if (err) {
         remove(fn);
-        fprintf(stderr, "I/O error on %s -- disk full?", fn);
+        fprintf(stderr, "I/O error on %s -- disk full?\n", fn);
         return 2;
     }
     return 0;
@@ -198,7 +198,6 @@ wrfunc(struct stabent *func)
         case OPOPN:
         case ODUPN:
         case OENTER:
-        case OLEAVE:
             WRINT(cn->arg.n);
             break;
 
@@ -231,7 +230,12 @@ wrfunc(struct stabent *func)
 void 
 wrbytes(unsigned val, int bytes)
 {
-    const unsigned maxval = (1u << 8 * bytes) - 1;
+    unsigned maxval;
+    if (bytes == sizeof(int)) {
+        maxval = ~0u;
+    } else {
+        maxval = (1u << (8 * bytes));
+    }
 
     if (!err) {
         if (bytes > sizeof(unsigned)) {
@@ -241,7 +245,7 @@ wrbytes(unsigned val, int bytes)
         }
 
         if (val > maxval) {
-            fprintf(stderr, "program too large");
+            fprintf(stderr, "program too large %u %u %u\n", bytes, val, maxval);
             err = 1;
             return;
         }

@@ -3,7 +3,7 @@
 
 #include "lex.h"
 
-#define INTSIZE 2
+#define INTSIZE 4
 
 enum storclas {
     NEW,
@@ -59,10 +59,6 @@ struct ival {
     } v; 
 };
 
-// stack op notation: p1 p0 /op/ r1 r0
-// p1 is the next to top of stack before op, p0 is the top of stack before op,
-// r1 is the next to top of stack after op, r0 is the top of stack after op
-//
 enum codeop {
     ONAMDEF,                        // define a name for an address
     OJMP,                           // jump to a code location

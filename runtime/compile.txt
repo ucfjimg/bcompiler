@@ -1,0 +1,2 @@
+as -o b0.o -a -march=i386 --32 b0.s
+ar rcs -o libb0.a b0.o

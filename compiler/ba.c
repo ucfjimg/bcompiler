@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,7 @@ static void wrheader(void);
 static void wrdata(void);
 static void wrcode(void);
 static void wrstrp(void);
+static void wrname(const char *name);
 static unsigned rdbytes(int bytes);
 static void rdname(char *name);
 
@@ -124,7 +126,7 @@ wrdata(void)
         if (fl & BIFVEC) {
             vecsize = RDINT();
         } else {
-            fprintf(fout, ".%s:\n", name);
+            wrname(name);
         }
 
         ninit = RDINT();
@@ -147,7 +149,7 @@ wrdata(void)
         }
 
         if (fl & BIFVEC) {
-            fprintf(fout, ".%s:\n", name);
+            wrname(name);
             fprintf(fout, "    .int .-4\n");
         }
     }
@@ -159,6 +161,7 @@ static struct {
     enum codeop op;
     const char *text;
 } simpleops[] = {
+    { ONAMDEF,"NAMDEF" },
     { OPOP,   "POP" },
     { OPOPT,  "POPT" },
     { OPUSHT, "PUSHT" },
@@ -166,6 +169,7 @@ static struct {
     { ODUP,   "DUP" },
     { ODEREF, "DEREF" },
     { OSTORE, "STORE" },
+    { OLEAVE, "LEAVE" },
     { OCALL,  "CALL" },
     { ORET,   "RET" },
     { OADD,   "ADD" },
@@ -194,12 +198,42 @@ static const char *
 simpop(int n)
 {
     int i;
-    for (i = 0; i < n; i++) {
+    for (i = 0; i < nsimpleops; i++) {
         if (simpleops[i].op == n) {
             return simpleops[i].text;
         }
     }
     return NULL;
+}
+
+// Adjust an offset for an automatic variable or arg based on
+// the stack frame layout
+//   |   arg n   |
+//   |  arg n-1  |
+//   |    ...    |
+//   |   arg 0   | +8
+//   |return addr| + 4
+//   |  old ebp  | <- ebp
+//   | local -1  | -4
+//   | local -2  | -8
+//   |    etc.   |
+//
+static unsigned
+adjauto(unsigned offs)
+{
+    int soffs = offs;
+
+    // arg pointers have to skip over saved EBP and return address
+    //
+    if (soffs >= 0) {
+        soffs += 2;
+    }
+
+    // scale to target INTSIZE
+    //
+    soffs *= INTSIZE;
+
+    return soffs;
 }
 
 // Write out functions
@@ -216,7 +250,7 @@ wrcode(void)
 
     for (i = 0; i < ncode; i++) {
         rdname(fn);
-        fprintf(fout, ".%s:\n", fn);
+        wrname(fn);
         
         // TODO don't really need this?
         nex = RDINT();
@@ -245,19 +279,15 @@ wrcode(void)
                 break;
 
             case OPOPN:
-                fprintf(fout, "    .int POPN, %u\n", RDINT());
+                fprintf(fout, "    .int POPN, %u\n", INTSIZE * RDINT());
                 break;
 
             case ODUPN:
-                fprintf(fout, "    .int DUPN, %u\n", RDINT());
+                fprintf(fout, "    .int DUPN, %u\n", INTSIZE * RDINT());
                 break;
 
             case OENTER:
                 fprintf(fout, "    .int ENTER, %u\n", RDINT());
-                break;
-
-            case OLEAVE:
-                fprintf(fout, "    .int LEAVE, %u\n", RDINT());
                 break;
 
             case OPSHCON:
@@ -273,11 +303,15 @@ wrcode(void)
             case OPSHSYM:
                 if (RDBYTE() == 0) {
                     // extrn
-                    fprintf(fout, "    .int PSHSYM, %s\n", extrns + (MAXNAM + 1) * RDINT());
+                    fprintf(fout, "    .int PSHSYM, .%s\n", extrns + (MAXNAM + 1) * RDINT());
                 } else {
                     fprintf(fout, "    .int PSHAUTO, %d\n", RDINT());    
                 }
                 break;
+
+            default:
+                fprintf(stderr, "internal error: intermediate op %d not handled\n", op);
+                assert(0);
             }
         }
     }
@@ -335,6 +369,19 @@ chkinerr(void)
     }
 }
 
+// write a gloal name
+//
+void 
+wrname(const char *name)
+{
+    fprintf(
+        fout,
+            "    .align 4\n"
+            "    .global .%s\n"
+            ".%s:\n",
+        name,
+        name);
+}
 
 // read an n byte integer
 // TODO some things should be unsigned

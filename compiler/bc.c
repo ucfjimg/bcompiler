@@ -211,7 +211,9 @@ funcdef(struct codefrag *prog)
    
     pushicon(prog, 0);
     pushlbl(prog, retlabel->name);
-    pushopn(prog, OLEAVE, size);
+    pushop(prog, OPOPT);
+    pushop(prog, OLEAVE);
+    pushop(prog, OPUSHT);
     pushop(prog, ORET);
 }
 
@@ -1011,8 +1013,6 @@ eprimary(struct codefrag *prog)
     for(done = 0; !done;) {
         switch (curtok->type) {
         case TLPAREN:
-            // TODO is fn an lval or rval? 
-
             nextok();
             args = ecall(prog);
             
@@ -1647,6 +1647,7 @@ static struct {
     { ODUP,   "DUP" },
     { ODEREF, "DEREF" },
     { OSTORE, "STORE" },
+    { OLEAVE, "LEAVE" },
     { OCALL,  "CALL" },
     { ORET,   "RET" },
     { OADD,   "ADD" },
@@ -1705,10 +1706,6 @@ cfprint(struct codefrag *frag)
 
         case OENTER:
             printf("%sENTER %d\n", spaces, n->arg.n);
-            break;
-
-        case OLEAVE:
-            printf("%sLEAVE %d\n", spaces, n->arg.n);
             break;
 
         case OJMP:

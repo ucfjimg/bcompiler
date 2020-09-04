@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.2)
-project(cc)
+project(b)
 set(CMAKE_C_STANDARD 90)
 
-add_executable(bc bif.c bc.c lex.c)
-add_executable(ba ba.c)
+add_subdirectory(compiler)
+add_subdirectory(runtime)
 
-install(TARGETS bc ba DESTINATION bin)
