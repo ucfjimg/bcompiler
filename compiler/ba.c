@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "bif.h"
 #include "b.h"
@@ -13,7 +14,6 @@ static char *outfname;
 static FILE *fin;
 static FILE *fout;
 
-static char *mksname(const char *srcname);
 static void wrheader(void);
 static void wrdata(void);
 static void wrcode(void);
@@ -25,18 +25,62 @@ static void rdname(char *name);
 #define RDBYTE() rdbytes(1)
 #define RDINT() rdbytes(INTSIZE)
 
+static void
+usage()
+{
+    fprintf(stderr, "ba: [-o outfile] infile\n");
+    exit(1);
+}
+
+static char *
+mkoutf(const char *inf)
+{
+    char *dot = strrchr(inf, '.');
+    char *sep = strrchr(inf, '/');
+    char *out;
+    int l;
+
+    if (dot && (sep == NULL || sep < dot)) {
+        l = dot - inf;
+    } else {
+        l = strlen(inf);
+    }
+
+    out = malloc(l + 3);
+    memcpy(out, inf, l);
+    out[l] = '.';
+    out[l+1] = 's';
+    out[l+2] = '\0';
+
+    return out;
+}
+
 int
 main(int argc, char **argv)
 {
     int outfail;
+    int ch;
 
-    if (argc != 2) {
-        fprintf(stderr, "ba: ifilename\n");
-        return 1;
+    while ((ch = getopt(argc, argv, "o:")) != -1) {
+        switch (ch) {
+        case 'o':
+            outfname = optarg;
+            break;
+
+        default:
+            usage();
+            break;
+        }
     }
 
-    srcfname = argv[1];
-    outfname = mksname(srcfname);
+    if (optind >= argc) {
+        usage();
+    }
+    srcfname = argv[optind];
+
+    if (outfname == NULL) {
+        outfname = mkoutf(srcfname);
+    }
 
     if ((fin = fopen(srcfname, "rb")) == NULL) {
         perror(srcfname);
@@ -243,7 +287,7 @@ wrcode(void)
 {
     int ncode = RDINT();
     int i;
-    int j, nex, ninst, op, n;
+    int j, nex, ninst, op, n, offs;
     char fn[MAXNAM + 1], name[MAXNAM + 1];
     const char *opcode;
     char *extrns;
@@ -287,7 +331,11 @@ wrcode(void)
                 break;
 
             case OENTER:
-                fprintf(fout, "    .int ENTER, %u\n", RDINT());
+                fprintf(fout, "    .int ENTER, %u\n", INTSIZE * RDINT());
+                break;
+
+            case OAVINIT:
+                fprintf(fout, "    .int AVINIT, %d\n", INTSIZE * RDINT());
                 break;
 
             case OPSHCON:
@@ -305,12 +353,13 @@ wrcode(void)
                     // extrn
                     fprintf(fout, "    .int PSHSYM, .%s\n", extrns + (MAXNAM + 1) * RDINT());
                 } else {
-                    fprintf(fout, "    .int PSHAUTO, %d\n", RDINT());    
+                    offs = RDINT();
+                    fprintf(fout, "    .int PSHAUTO, %d\n", adjauto(offs));    
                 }
                 break;
 
             default:
-                fprintf(stderr, "internal error: intermediate op %d not handled\n", op);
+                fprintf(stderr, "internal error: intermediate op %d at %d not handled\n", op, (int)ftell(fin));
                 assert(0);
             }
         }

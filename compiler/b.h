@@ -79,6 +79,7 @@ enum codeop {
                                     // stack, and reserve 'n' stack slots
     OLEAVE,                         // pop 'n' stack slots, pop dp  
     ORET,                           // return 
+    OAVINIT,                        // initialize the auto vector at offset 'n'
 
     OADD,                           // a1 a0 /add/ a1+a0
     OSUB,                           // a1 a0 /sub/ a1-a0

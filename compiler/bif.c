@@ -148,6 +148,7 @@ wrfunc(struct stabent *func)
     int names = 0;
     int exidx = 0;
 
+
     // TODO hoist all the externs up into one big de-duplicated table
     for (sym = func->scope.head; sym; sym = sym->next) {
         if (sym->sc == EXTERN) {
@@ -198,6 +199,7 @@ wrfunc(struct stabent *func)
         case OPOPN:
         case ODUPN:
         case OENTER:
+        case OAVINIT:
             WRINT(cn->arg.n);
             break;
 
@@ -212,7 +214,7 @@ wrfunc(struct stabent *func)
 
         case OPSHSYM:
             WRBYTE(cn->arg.target->sc == EXTERN ? 0 : 1);
-            if (cn->arg.target->sc) {
+            if (cn->arg.target->sc == EXTERN) {
                 WRINT(cn->arg.target->labpc);
             } else if (cn->arg.target->sc != AUTO) {
                 fprintf(stderr, "internal compiler error: OPSHSYM neither EXTERN nor AUTO\n");

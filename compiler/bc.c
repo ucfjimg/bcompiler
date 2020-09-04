@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "b.h"
 #include "lex.h"
@@ -26,6 +27,7 @@ static struct stablist *local = NULL;
 static struct stablist datasyms = { NULL, NULL };
 static struct swtch *swtchstk = NULL;
 static struct stabent *retlabel = NULL;
+static int nextauto = 0;
 
 static void program(void);
 static void definition(void);
@@ -60,28 +62,73 @@ static struct stabent *mklabel(void);
 static struct codenode *cnalloc(void);
 static void cnpush(struct codefrag *frag, struct codenode *node);
 static void cnappend(struct codefrag *fragl, struct codefrag *fragr);
+static void cnsplice(struct codefrag *fragl, struct codefrag *fragr, struct codenode *after);
 static void cfprint(struct codefrag *frag);
 
 static void ddprint(struct stabent *sym);
 
 static void err(int sline, int line, const char *fmt, ...);
 
+static void
+usage()
+{
+    fprintf(stderr, "bc: [-o outfile] infile\n");
+    exit(1);
+}
+
+static char *
+mkoutf(const char *inf)
+{
+    char *dot = strrchr(inf, '.');
+    char *sep = strrchr(inf, '/');
+    char *out;
+    int l;
+
+    if (dot && (sep == NULL || sep < dot)) {
+        l = dot - inf;
+    } else {
+        l = strlen(inf);
+    }
+
+    out = malloc(l + 3);
+    memcpy(out, inf, l);
+    out[l] = '.';
+    out[l+1] = 'i';
+    out[l+2] = '\0';
+
+    return out;
+}
+
 int 
 main(int argc, char **argv)
 {
     FILE *fp;
     struct stabent *sym;
-    char *outfn;
-    
-    if (argc != 2) {
-        fprintf(stderr, "bc: source-file\n");
-        return 1;
+    char *outfn = NULL;
+    int ch;
+
+    while ((ch = getopt(argc, argv, "o:")) != -1) {
+        switch (ch) {
+        case 'o':
+            outfn = optarg;
+            break;
+
+        default:
+            usage();
+            break;
+        }
     }
 
-    if (strcmp(srcfn = argv[1], "-") == 0) {
-        srcfn = "<stdin>";
-        fp = stdin;
-    } else if ((fp = fopen(srcfn, "r")) == NULL) {
+    if (optind >= argc) {
+        usage();
+    }
+    srcfn = argv[optind];
+
+    if (outfn == NULL) {
+        outfn = mkoutf(srcfn);
+    }
+
+    if ((fp = fopen(srcfn, "r")) == NULL) {
         perror(srcfn);
         return 1;
     }
@@ -94,16 +141,8 @@ main(int argc, char **argv)
         return 1;
     }
 
-    if (fp == stdin) {
-        if (bifwrite("stdin.o", global) != 0) {
-            return 1;
-        }
-    } else {
-        outfn = malloc(strlen(srcfn) + 5);
-        sprintf(outfn, "%s.o", srcfn);
-        if (bifwrite(outfn, global) != 0) {
-            return 1;
-        }
+    if (bifwrite(outfn, global) != 0) {
+        return 1;
     }
 
 #if 1
@@ -172,8 +211,9 @@ definition(void)
 void 
 funcdef(struct codefrag *prog)
 {
-    int size;
+    int autoidx;
     struct codenode *enter;
+    struct codefrag avinit;
 
     retlabel = mklabel();
 
@@ -189,25 +229,21 @@ funcdef(struct codefrag *prog)
 
     statement(prog);
 
-    size = 0;
-    for (sym = local->head; sym; sym = sym->next) {
-        if (sym->sc == AUTO) {
-            switch (sym->type) {
-            case SIMPLE:
-                size++;
-                break;
+    avinit.head = avinit.tail = NULL;
 
-            case VECTOR:
-                size += sym->vecsize + 1;
-                break;
-            }
-        }
+    for (sym = local->head; sym; sym = sym->next) {
         if (sym->forward) {
             err(__LINE__,curtok->line, "'%s': goto target was never defined.", sym->name);
         }
-    }
 
-    enter->arg.n = size;
+        if (sym->sc == AUTO && sym->type == VECTOR) {
+            pushopn(&avinit, OAVINIT, sym->stkoffs);
+        }
+    }
+    
+    cnsplice(&avinit, prog, enter);
+
+    enter->arg.n = nextauto;
    
     pushicon(prog, 0);
     pushlbl(prog, retlabel->name);
@@ -372,7 +408,7 @@ stmtauto()
 
     for (done = 0; !done;) {
         if (curtok->type != TNAME) {
-            err(__LINE__,curtok->line, "name exepected");
+            err(__LINE__,curtok->line, "name expected");
             nextok();
             break;
         }
@@ -389,7 +425,12 @@ stmtauto()
         if (curtok->type == TINTCON) {
             sym->type = VECTOR;
             sym->vecsize = curtok->val.con.v.intcon;
+            nextauto += 1 + sym->vecsize;
+            sym->stkoffs = -nextauto;
             nextok();
+        } else {
+            nextauto++;
+            sym->stkoffs = -nextauto;
         }
 
         switch (curtok->type) {
@@ -1597,6 +1638,29 @@ cnappend(struct codefrag *fragl, struct codefrag *fragr)
     fragr->head = fragr->tail = NULL;
 }
 
+// splice a code fragment into another, after a given node
+//
+void
+cnsplice(struct codefrag *fragl, struct codefrag *fragr, struct codenode *after)
+{
+    struct codenode *next = after ? after->next : fragr->head;
+
+    if (fragl->head == NULL) {
+        return;
+    }
+
+    if (after) {
+        after->next = fragl->head;
+    } else {
+        fragr->head = fragl->head;
+    }
+
+    fragl->tail->next = next;
+    if (next == NULL) {
+        fragr->tail = fragl->tail;
+    }
+}
+
 // Hex dump
 //
 void
@@ -1680,6 +1744,10 @@ cfprint(struct codefrag *frag)
     char ch;
 
     for (n = frag->head; n; n = n->next) {
+        if (n->op != ONAMDEF) {
+            printf("%s%02u ", spaces, n->op);
+        }
+
         for (i = 0; i < nsimpleops; i++) {
             if (n->op == simpleops[i].op) {
                 break;
@@ -1687,7 +1755,7 @@ cfprint(struct codefrag *frag)
         }
 
         if (i < nsimpleops) {
-            printf("%s%s\n", spaces, simpleops[i].text);
+            printf("%s\n", simpleops[i].text);
             continue;
         }
 
@@ -1697,28 +1765,32 @@ cfprint(struct codefrag *frag)
             break;
 
         case OPOPN:
-            printf("%sPOPN %d\n", spaces, n->arg.n);
+            printf("POPN %d\n", n->arg.n);
              break;
 
         case ODUPN:
-            printf("%sDUPN %d\n", spaces, n->arg.n);
+            printf("DUPN %d\n", n->arg.n);
             break;
 
         case OENTER:
-            printf("%sENTER %d\n", spaces, n->arg.n);
+            printf("ENTER %d\n", n->arg.n);
+            break;
+
+        case OAVINIT:
+            printf("AVINIT %d\n", n->arg.n);
             break;
 
         case OJMP:
         case OBZ:
-            printf("%s%s %s\n", spaces, (n->op == OJMP) ? "JMP" : "BZ", n->arg.target->name);
+            printf("%s %s\n", (n->op == OJMP) ? "JMP" : "BZ", n->arg.target->name);
             break;
 
         case OPSHCON:
-            prcon(spaces, "PSHCON", &n->arg.con);
+            prcon("", "PSHCON", &n->arg.con);
             break;
 
         case OPSHSYM:
-            printf("%sPSHSYM %s\n", spaces, n->arg.target->name);
+            printf("PSHSYM %s FP[%d]\n", n->arg.target->name, n->arg.target->stkoffs);
             break;
         }
     }
