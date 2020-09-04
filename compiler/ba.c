@@ -319,7 +319,7 @@ wrcode(void)
             switch (op) {
             case OJMP:
             case OBZ:
-                fprintf(fout, "    .int %s, .%s+%u\n", (op == OJMP) ? "JMP" : "BZ", fn, RDINT());
+                fprintf(fout, "    .int %s, .%s+%u\n", (op == OJMP) ? "JMP" : "BZ", fn, 4 * RDINT());
                 break;
 
             case OPOPN:

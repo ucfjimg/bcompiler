@@ -37,4 +37,3 @@ putchar:
     pop %ebx
     pop %ecx
     jmp *(%ecx)
-    

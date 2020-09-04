@@ -4,7 +4,7 @@
     .global _start
 _start:
     
-    movl .main, %ecx
+    leal .main, %ecx
     pushl $exit
     jmp *(%ecx)
 
