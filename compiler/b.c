@@ -20,6 +20,7 @@ static const char *bacmd;
 static const char *ascmd;
 static const char *ldcmd;
 static int debug = 0;
+static int packrat = 0;   // don't delete any intermediate files
 static int verbose = 0;
 
 static void usage(void);
@@ -56,7 +57,7 @@ main(int argc, char **argv)
     ascmd = fqcommand(rundir("as"), "as");
     ldcmd = fqcommand(rundir("ld"), "ld");
 
-    while ((ch = getopt(argc, argv, "cgo:s:v")) != -1) {
+    while ((ch = getopt(argc, argv, "cgo:ps:v")) != -1) {
         switch (ch) {
         case 'c':
             runld = 0;
@@ -68,6 +69,10 @@ main(int argc, char **argv)
 
         case 'o':
             ofname = optarg;
+            break;
+
+        case 'p':
+            packrat = 1;
             break;
 
         case 's':
@@ -152,10 +157,12 @@ main(int argc, char **argv)
     if (runld) {
         ld(ofname ? ofname : "a.out");
 
-        for (lobj = linkhead; lobj; lobj = lobj->next) {
-            if (lobj->remove) {
-                veprintf("removing %s\n", lobj->name);
-                remove(lobj->name);
+        if (!packrat) {
+            for (lobj = linkhead; lobj; lobj = lobj->next) {
+                if (lobj->remove) {
+                    veprintf("removing %s\n", lobj->name);
+                    remove(lobj->name);
+                }
             }
         }
     }
@@ -165,6 +172,7 @@ main(int argc, char **argv)
 
 // print usage and exit
 //
+void 
 usage(void)
 {
     fprintf(stderr, "b: -c -v -g -s sysroot -o outfile srcfile [srcfile ...]\n");    
@@ -194,8 +202,10 @@ compile(const char *fn, const char *out)
     rc = system(cmd);
     free(cmd);
 
-    veprintf("removing %s\n", ifile);
-    remove(ifile);
+    if (!packrat) {
+        veprintf("removing %s\n", ifile);
+        remove(ifile);
+    }
     
     if (rc) {
         return 0;
@@ -206,8 +216,10 @@ compile(const char *fn, const char *out)
     rc = system(cmd);
     free(cmd);
 
-    veprintf("removing %s\n", sfile);
-    remove(sfile);
+    if (!packrat) {
+        veprintf("removing %s\n", sfile);
+        remove(sfile);
+    }
     
     return rc == 0; 
 }
