@@ -11,4 +11,7 @@ a.out
 runtime/hello.s
 runtime/printf.s
 runtime/printn.s
+runtime/simple
+runtime/simple.s
+
 

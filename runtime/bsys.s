@@ -22,22 +22,32 @@ _putchar:
     .int RET
 
     .local putchar
-outch:
-    .byte 0
 
 putchar:
     push %ecx
     push %ebx
-    mov 4(%esp), %eax
-    mov %al, outch
+    push 12(%esp)
 
     mov $4, %eax        # write system
     mov $1, %ebx        # stdout
-    leal outch, %ecx    # buffer to write
-    mov 1, %edx         # bytes to write
+    mov %esp, %ecx      # buffer to write
+    mov $1, %edx        # bytes to write
     int $0x80
 
+    pop %eax
     pop %ebx
     pop %ecx
     push %eax
     jmp *(%ecx)
+
+    .align 4
+    .global _debug
+_debug:
+    .int NCALL, debug
+    .int RET
+
+debug:
+    int $3
+    push $0
+    jmp *(%ecx)
+

@@ -1,10 +1,13 @@
 #
 # For now, build all the runtime and hello world 
 #
-all: a.out 
+all: a.out simple 
 
 a.out: b0.o hello.o printf.o printn.o libb.a
 	ld -m elf_i386 b0.o hello.o printf.o printn.o libb.a
+
+simple: b0.o simple.o libb.a
+	ld -o simple -m elf_i386 b0.o simple.o libb.a
 
 %.i: ../programs/%.b
 	bc -o $*.i $< > $*.icode
@@ -15,14 +18,17 @@ a.out: b0.o hello.o printf.o printn.o libb.a
 %.o: %.s
 	as -g -a=$*.lst -o $*.o -a -march=i386 --32 $< 
 
+simple.i: ../programs/simple.b
 printf.i: ../programs/printf.b
 printn.i: ../programs/printn.b
 hello.i: ../programs/hello.b
 
+simple.s: simple.i
 printf.s: printf.i
 printn.s: printn.i
 hello.s: hello.i
 
+simple.o: simple.s
 printf.o: printf.s
 printn.o: printn.s
 hello.o: hello.s

@@ -145,7 +145,6 @@ wrfunc(struct stabent *func)
     int pc = 0;
     struct codenode *cn;
     struct stabent *sym;
-    int names = 0;
     int exidx = 0;
 
 
@@ -163,34 +162,18 @@ wrfunc(struct stabent *func)
         }
     }
 
-    for (cn = func->fn.head; cn; cn = cn->next) {
-        if (cn->op == ONAMDEF) {
-            names++;
-        }
-    } 
-
-    for (cn = func->fn.head; cn; cn = cn->next, pc++) {
-        if (cn->op == ONAMDEF) {
-            for (sym = func->scope.head; sym; sym = sym->next) {
-                if (strcmp(cn->arg.name, sym->name) == 0) {
-                    break;
-                }
-            }
-
-            if (sym == NULL) {
-                fprintf(stderr, "undefined name '%s' in intermediate code\n", cn->arg.name);
-                err = 1;
-            }
-
-            sym->labpc = pc;
-        }
-    } 
+    for (cn = func->fn.head; cn; cn = cn->next, pc++)
+        ;
 
     WRINT(pc);
 
-    for (cn = func->fn.head; cn; cn = cn->next, pc++) {
+    for (cn = func->fn.head; cn; cn = cn->next) {
         WRBYTE(cn->op);
         switch (cn->op) {
+        case ONAMDEF:
+            WRINT(cn->arg.target->labpc);
+            break;
+
         case OJMP:
         case OBZ:
             WRINT(cn->arg.target->labpc);

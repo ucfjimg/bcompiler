@@ -27,6 +27,7 @@ static struct stablist *local = NULL;
 static struct stablist datasyms = { NULL, NULL };
 static struct swtch *swtchstk = NULL;
 static struct stabent *retlabel = NULL;
+static int nextlab = 0;
 static int nextauto = 0;
 
 static void program(void);
@@ -51,7 +52,7 @@ static void pushop(struct codefrag *prog, enum codeop op);
 static void pushopn(struct codefrag *prog, enum codeop op, unsigned n);
 static void pushicon(struct codefrag *prog, unsigned val);
 static void pushbr(struct codefrag *prog, enum codeop op, struct stabent *target);
-static void pushlbl(struct codefrag *prog, const char *lbl);
+static void pushlbl(struct codefrag *prog, struct stabent *lbl);
 static void torval(struct codefrag *prog);
 static int expr(struct codefrag *prog);
 
@@ -246,7 +247,7 @@ funcdef(struct codefrag *prog)
     enter->arg.n = nextauto;
    
     pushicon(prog, 0);
-    pushlbl(prog, retlabel->name);
+    pushlbl(prog, retlabel);
     pushop(prog, OPOPT);
     pushop(prog, OLEAVE);
     pushop(prog, OPUSHT);
@@ -500,7 +501,6 @@ stmtlabel(struct codefrag *prog, int line, const char *nm)
 
     cn = cnalloc();
     cn->op = ONAMDEF;
-    strcpy(cn->arg.name, nm);
 
     cnpush(prog, cn);
 
@@ -509,11 +509,14 @@ stmtlabel(struct codefrag *prog, int line, const char *nm)
         sym->sc = INTERNAL;
         sym->type = LABEL;
         sym->cptr = cn; 
+        sym->labpc = nextlab++;
     } else if (sym->sc == INTERNAL && sym->type == LABEL) {
         sym->forward = 0;
     } else {
         err(__LINE__,line, "'%s' is already defined", nm);
     }
+
+    cn->arg.target = sym;
 }
 
 // Goto statement
@@ -583,13 +586,13 @@ stmtif(struct codefrag *prog)
     statement(prog);
     
     if (curtok->type != TELSE) {
-        pushlbl(prog, elsepart->name); 
+        pushlbl(prog, elsepart); 
     } else {
         nextok();
         pushbr(prog, OJMP, donepart);
-        pushlbl(prog, elsepart->name);
+        pushlbl(prog, elsepart);
         statement(prog);
-        pushlbl(prog, donepart->name);
+        pushlbl(prog, donepart);
     }
 }
 
@@ -601,7 +604,7 @@ stmtwhile(struct codefrag *prog)
     struct stabent *top = mklabel();
     struct stabent *bottom = mklabel();
 
-    pushlbl(prog, top->name);
+    pushlbl(prog, top);
 
     if (curtok->type != TLPAREN) {
         err(__LINE__,curtok->line, "'(' expected");
@@ -622,7 +625,7 @@ stmtwhile(struct codefrag *prog)
     pushbr(prog, OBZ, bottom);
     statement(prog);
     pushbr(prog, OJMP, top);
-    pushlbl(prog, bottom->name);
+    pushlbl(prog, bottom);
 }
 
 // Parse a switch statement
@@ -644,7 +647,7 @@ stmtswitch(struct codefrag *prog)
     statement(prog);
 
     if (swtchstk->fwd) {
-        pushlbl(prog, swtchstk->fwd->name);
+        pushlbl(prog, swtchstk->fwd);
     }
 
     pushop(prog, OPOP);
@@ -669,7 +672,7 @@ stmtcase(struct codefrag *prog)
 
     if (swtchstk) {
         if (swtchstk->fwd) {
-            pushlbl(prog, swtchstk->fwd->name);
+            pushlbl(prog, swtchstk->fwd);
         }
                                         // disc
         pushop(prog, ODUP);             // disc disc
@@ -926,11 +929,11 @@ pushbr(struct codefrag *prog, enum codeop op, struct stabent *target)
 // Add a label
 //
 void
-pushlbl(struct codefrag *prog, const char *lbl)
+pushlbl(struct codefrag *prog, struct stabent *lbl)
 {
     struct codenode *cn = cnalloc();
     cn->op = ONAMDEF;
-    strcpy(cn->arg.name, lbl);
+    cn->arg.target = lbl;
 
     cnpush(prog, cn);
 }
@@ -1408,14 +1411,14 @@ econd(struct codefrag *prog)
         }
 
         pushbr(prog, OJMP, done);
-        pushlbl(prog, skip->name);
+        pushlbl(prog, skip);
 
         if (curtok->type == TCOLON) {
             nextok();
             if (econd(prog) == LVAL) {
                 torval(prog);
             }
-            pushlbl(prog, done->name);
+            pushlbl(prog, done);
         } else {
             err(__LINE__,curtok->line, "':' expected");
         }
@@ -1577,15 +1580,15 @@ stabfind(const char *name)
 struct stabent *
 mklabel(void)
 {
-    static int nextag = 1;
     char nm[MAXNAM + 1];
     struct stabent *sym;
 
-    sprintf(nm, "@%d", nextag++);
+    sprintf(nm, "@%d", nextlab);
     sym = stabget(local, nm);
 
     sym->sc = INTERNAL;
     sym->type = LABEL;
+    sym->labpc = nextlab++;
 
     return sym;
 }
@@ -1761,7 +1764,7 @@ cfprint(struct codefrag *frag)
 
         switch (n->op) {
         case ONAMDEF:
-            printf("%s:\n", n->arg.name);
+            printf("@%d:\n", n->arg.target->labpc);
             break;
 
         case OPOPN:
@@ -1782,7 +1785,7 @@ cfprint(struct codefrag *frag)
 
         case OJMP:
         case OBZ:
-            printf("%s %s\n", (n->op == OJMP) ? "JMP" : "BZ", n->arg.target->name);
+            printf("%s @%d\n", (n->op == OJMP) ? "JMP" : "BZ", n->arg.target->labpc);
             break;
 
         case OPSHCON:

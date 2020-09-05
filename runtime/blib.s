@@ -84,12 +84,12 @@ JMP:
 BZ:
     add $4, %ecx        # -> arg (stack space)
     mov (%ecx), %eax    # jump target
+    add $4, %ecx        
     pop %edx            # condition
     or %edx, %edx       # is condition zero?
     jnz bzno            # nope
-    jmp *(%eax)         # yes, jump to target
+    mov %eax, %ecx      # yes, jump to target
 bzno:
-    add $4, %ecx        
     jmp *(%ecx)
     
 

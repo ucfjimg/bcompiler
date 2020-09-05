@@ -205,7 +205,6 @@ static struct {
     enum codeop op;
     const char *text;
 } simpleops[] = {
-    { ONAMDEF,"NAMDEF" },
     { OPOP,   "POP" },
     { OPOPT,  "POPT" },
     { OPUSHT, "PUSHT" },
@@ -317,9 +316,13 @@ wrcode(void)
             }
 
             switch (op) {
+            case ONAMDEF:
+                fprintf(fout, "$%d:\n", RDINT());
+                break;
+
             case OJMP:
             case OBZ:
-                fprintf(fout, "    .int %s, _%s+%u\n", (op == OJMP) ? "JMP" : "BZ", fn, 4 * RDINT());
+                fprintf(fout, "    .int %s, $%d\n", (op == OJMP) ? "JMP" : "BZ", RDINT());
                 break;
 
             case OPOPN:
