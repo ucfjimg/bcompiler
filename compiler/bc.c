@@ -87,6 +87,10 @@ mkoutf(const char *inf)
 
     if (dot && (sep == NULL || sep < dot)) {
         l = dot - inf;
+        if (sep) {
+            l -= (sep - inf + 1);
+            inf = sep + 1;
+        }
     } else {
         l = strlen(inf);
     }
@@ -106,12 +110,17 @@ main(int argc, char **argv)
     FILE *fp;
     struct stabent *sym;
     char *outfn = NULL;
+    int listing = 0;
     int ch;
 
-    while ((ch = getopt(argc, argv, "o:")) != -1) {
+    while ((ch = getopt(argc, argv, "lo:")) != -1) {
         switch (ch) {
         case 'o':
             outfn = optarg;
+            break;
+
+        case 'l':
+            listing = 1;
             break;
 
         default:
@@ -146,20 +155,20 @@ main(int argc, char **argv)
         return 1;
     }
 
-#if 1
-    for (sym = global.head; sym; sym = sym->next) {
-        if (sym->type == FUNC) {
-            printf("function %s:\n", sym->name);
-            cfprint(&sym->fn);
+    if (listing) {
+        for (sym = global.head; sym; sym = sym->next) {
+            if (sym->type == FUNC) {
+                printf("function %s:\n", sym->name);
+                cfprint(&sym->fn);
+            }
         }
-    }
 
-    for (sym = datasyms.head; sym; sym = sym->nextData) {
-        if (sym->type != FUNC) {
-            ddprint(sym);
+        for (sym = datasyms.head; sym; sym = sym->nextData) {
+            if (sym->type != FUNC) {
+                ddprint(sym);
+            }
         }
     }
-#endif
     return 0;
 }
 
