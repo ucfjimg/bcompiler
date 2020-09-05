@@ -92,6 +92,21 @@ BZ:
 bzno:
     jmp *(%ecx)
     
+#
+# case statement
+#
+    .global CASE
+CASE:
+    mov 4(%ecx), %eax   # case value
+    mov 8(%ecx), %edx   # start of routine
+    cmp %eax, (%esp)    # disc is on top of stack
+    je casego           # a match!
+    add $12, %ecx       # skip args
+    jmp *(%ecx)         # and keep going
+casego:
+    pop %eax            # pop disc off stack
+    mov %edx, %ecx      # new instruction ptr
+    jmp *(%ecx)
 
 ################################################################################
 #
@@ -364,7 +379,7 @@ LT:
     pop %eax
     pop %edx
     push $0
-    cmp %edx, %eax
+    cmp %eax, %edx
     setl (%esp)
     add $4, %ecx        # past argument
     jmp *(%ecx) 

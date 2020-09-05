@@ -14,9 +14,15 @@
 #define LVAL  0
 #define RVAL  1
 
+struct scase {
+    struct scase *next;
+    unsigned caseval;
+    struct stabent *label;
+};
+
 struct swtch {
     struct swtch *prev;
-    struct stabent *fwd;
+    struct scase *head, *tail;
 };
 
 static char *srcfn;
@@ -53,6 +59,7 @@ static void pushopn(struct codefrag *prog, enum codeop op, unsigned n);
 static void pushicon(struct codefrag *prog, unsigned val);
 static void pushbr(struct codefrag *prog, enum codeop op, struct stabent *target);
 static void pushlbl(struct codefrag *prog, struct stabent *lbl);
+static void pushcase(struct codefrag *prog, unsigned caseval, struct stabent *target);
 static void torval(struct codefrag *prog);
 static int expr(struct codefrag *prog);
 
@@ -643,25 +650,36 @@ void
 stmtswitch(struct codefrag *prog)
 {
     struct swtch *sw = calloc(1, sizeof(struct swtch));
+    struct scase *scase;
+    struct stabent *nomatch = mklabel();
+    struct codenode *here;
+    struct codefrag cases = { NULL, NULL };
+
     sw->prev = swtchstk;
     swtchstk = sw;
 
     // NB unlike C, B doesn't require parens around the discriminating
     // expression
-
+    //
     if (expr(prog) == LVAL) {
         torval(prog);
     }
 
+    here = prog->tail;
+
     statement(prog);
 
-    if (swtchstk->fwd) {
-        pushlbl(prog, swtchstk->fwd);
-    }
-
-    pushop(prog, OPOP);
+    pushlbl(prog, nomatch);
     swtchstk = sw->prev;
     free(sw);
+
+    for (scase = sw->head; scase; scase = scase->next) {
+        pushcase(&cases, scase->caseval, scase->label);
+    }
+    pushop(&cases, OPOP);
+    pushbr(&cases, OJMP, nomatch);
+
+    cnsplice(&cases, prog, here);
 }
 
 // Parse a case statement
@@ -669,6 +687,8 @@ stmtswitch(struct codefrag *prog)
 void
 stmtcase(struct codefrag *prog)
 {
+    struct scase *scase;
+
     if (swtchstk == NULL) {
         err(__LINE__,curtok->line, "case statement outside of switch");
     }
@@ -679,24 +699,25 @@ stmtcase(struct codefrag *prog)
         return;
     }
 
-    if (swtchstk) {
-        if (swtchstk->fwd) {
-            pushlbl(prog, swtchstk->fwd);
-        }
-                                        // disc
-        pushop(prog, ODUP);             // disc disc
-        swtchstk->fwd = mklabel();
+    scase = malloc(sizeof(struct scase));
+    scase->caseval = curtok->val.con.v.intcon;
+    scase->label = mklabel();
+    scase->next = NULL;
 
-        pushicon(prog, curtok->val.con.v.intcon);
-                                        // disc disc caseval
-        pushop(prog, OEQ);              // disc disc==caseval
-        pushbr(prog, OBZ, swtchstk->fwd);
+    if (swtchstk->head == NULL) {
+        swtchstk->head = scase;
+    } else {
+        swtchstk->tail->next = scase;
     }
+    swtchstk->tail = scase;
+
+    pushlbl(prog, scase->label);
 
     nextok();
     if (curtok->type != TCOLON) {
         err(__LINE__,curtok->line, "':' expected");
     }
+
     nextok();
 }
 
@@ -943,6 +964,19 @@ pushlbl(struct codefrag *prog, struct stabent *lbl)
     struct codenode *cn = cnalloc();
     cn->op = ONAMDEF;
     cn->arg.target = lbl;
+
+    cnpush(prog, cn);
+}
+
+// Add a case label
+//
+static void 
+pushcase(struct codefrag *prog, unsigned caseval, struct stabent *target)
+{
+    struct codenode *cn = cnalloc();
+    cn->op = OCASE;
+    cn->arg.caseval.disc = caseval;
+    cn->arg.caseval.label = target;
 
     cnpush(prog, cn);
 }
@@ -1803,6 +1837,10 @@ cfprint(struct codefrag *frag)
 
         case OPSHSYM:
             printf("PSHSYM %s FP[%d]\n", n->arg.target->name, n->arg.target->stkoffs);
+            break;
+
+        case OCASE:
+            printf("OCASE %u: @%d\n", n->arg.caseval.disc, n->arg.caseval.label->labpc);
             break;
         }
     }

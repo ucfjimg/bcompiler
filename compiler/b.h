@@ -100,6 +100,8 @@ enum codeop {
     OLT,                            // a1 a0 /lt/  a1<a0
     OGE,                            // a1 a0 /ge/  a1>=a0
     OGT,                            // a1 a0 /gt/  a1>a0
+    OCASE,                          // disc /case/ disc if not taken
+                                    // disc /case/      if taken
 };
 
 struct codenode {
@@ -112,6 +114,10 @@ struct codenode {
         unsigned n;
         struct stabent *target;
         struct constant con;
+        struct {
+            unsigned disc;
+            struct stabent *label;
+        } caseval;
     } arg;
 };
 

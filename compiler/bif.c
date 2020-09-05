@@ -191,6 +191,12 @@ wrfunc(struct stabent *func, struct stabent *syms)
             WRINT(cn->arg.target->labpc);
             break;
 
+
+        case OCASE:
+            WRINT(cn->arg.caseval.disc);
+            WRINT(cn->arg.caseval.label->labpc);
+            break;
+
         case OPOPN:
         case ODUPN:
         case OENTER:

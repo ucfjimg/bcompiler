@@ -325,6 +325,12 @@ wrcode(void)
                 fprintf(fout, "    .int %s, $%d\n", (op == OJMP) ? "JMP" : "BZ", RDINT());
                 break;
 
+            case OCASE:
+                fprintf(fout, "    .int CASE, ");
+                fprintf(fout, "%u, ", RDINT());
+                fprintf(fout, "$%d\n", RDINT());
+                break;
+
             case OPOPN:
                 fprintf(fout, "    .int POPN, %u\n", INTSIZE * RDINT());
                 break;
