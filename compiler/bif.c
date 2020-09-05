@@ -16,7 +16,7 @@ static int strpsize;
 
 static void wrdata(struct stabent *syms);
 static void wrcode(struct stabent *syms);
-static void wrfunc(struct stabent *func);
+static void wrfunc(struct stabent *func, struct stabent *syms);
 static void wrbytes(unsigned val, int bytes);
 static void wrname(const char *name);
 static void wrchars(const char *str, int bytes);
@@ -133,14 +133,14 @@ wrcode(struct stabent *syms)
         }
 
         wrname(symp->name);
-        wrfunc(symp);
+        wrfunc(symp, syms);
     }
 }
 
 // write out a function
 //
 void
-wrfunc(struct stabent *func)
+wrfunc(struct stabent *func, struct stabent *syms)
 {
     int pc = 0;
     struct codenode *cn;
@@ -155,8 +155,20 @@ wrfunc(struct stabent *func)
         }
     }
 
+    for (sym = syms; sym; sym = sym->next) {
+        if (sym->sc == EXTERN) {
+            sym->labpc = exidx++;
+        }
+    }
+
     WRINT(exidx);
     for (sym = func->scope.head; sym; sym = sym->next) {
+        if (sym->sc == EXTERN) {
+            wrname(sym->name);
+        }
+    }
+
+    for (sym = syms; sym; sym = sym->next) {
         if (sym->sc == EXTERN) {
             wrname(sym->name);
         }

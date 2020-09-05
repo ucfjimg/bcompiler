@@ -309,7 +309,7 @@ DIV:
     pop %eax            # lhs
     mov %eax, %edx
     sar $31, %edx       # sign ex eax into edx
-    idiv %edx, %eax
+    idiv %edi, %eax
     push %eax
     add $4, %ecx        # past argument
     jmp *(%ecx) 
@@ -325,7 +325,7 @@ MOD:
     pop %eax            # lhs
     mov %eax, %edx
     sar $31, %edx       # sign ex eax into edx
-    idiv %edx, %eax
+    idiv %edi, %eax
     push %edx
     add $4, %ecx        # past argument
     jmp *(%ecx) 
