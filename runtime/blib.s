@@ -314,6 +314,18 @@ NEG:
     jmp *(%ecx) 
 
 #
+# a0 [NOT] !a0
+#
+    .global NOT
+NOT:
+    pop %eax
+    push $0
+    cmp $0, %eax
+    setz (%esp)
+    add $4, %ecx        # past argument
+    jmp *(%ecx) 
+
+#
 # a1 a0 [DIV] a1/a0
 #
 # IDIV xxx: EDX:EAX / xxx => EAX (rem EDX)
@@ -344,6 +356,18 @@ MOD:
     push %edx
     add $4, %ecx        # past argument
     jmp *(%ecx) 
+
+#
+# a1 a0 [MUL] a1*a0
+#
+    .global MUL
+MUL:
+    pop %edi            # rhs
+    pop %eax            # lhs
+    imul %edi
+    push %eax
+    add $4, %ecx
+    jmp *(%ecx)
 
 #
 # a1 a0 [EQ] a1==a0 ? 1 : 0
