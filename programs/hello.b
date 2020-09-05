@@ -1,5 +1,5 @@
 main()
 {
-    extrn printf, debug;
+    extrn printf;
     printf("%s", "hello, world!*n");
 }
