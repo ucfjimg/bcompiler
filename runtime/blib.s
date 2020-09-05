@@ -326,6 +326,54 @@ NOT:
     jmp *(%ecx) 
 
 #
+# a1 a0 [SHR] a1>>a0 
+#
+    .global SHR
+SHR:
+    pop %edi            # rhs
+    pop %eax            # lhs
+    xchg %ecx, %edi     # shift must be in cl
+    shr %cl, %eax
+    push %eax
+    leal 4(%edi), %ecx
+    jmp *(%ecx) 
+
+#
+# a1 a0 [SHL] a1<<a0 
+#
+    .global SHL
+SHL:
+    pop %edi            # rhs
+    pop %eax            # lhs
+    xchg %ecx, %edi     # shift must be in cl
+    shl %cl, %eax
+    push %eax
+    leal 4(%edi), %ecx
+    jmp *(%ecx) 
+
+#
+# a1 a0 [AND] a1&a1
+#
+    .global AND
+AND:
+    pop %edi            # rhs
+    and %edi, (%esp)
+    add $4, %ecx        # past argument
+    jmp *(%ecx) 
+
+#
+# a1 a0 [OR] a1|a1
+#
+    .global OR
+OR:
+    pop %edi            # rhs
+    or %edi, (%esp)
+    add $4, %ecx        # past argument
+    jmp *(%ecx) 
+
+
+
+#
 # a1 a0 [DIV] a1/a0
 #
 # IDIV xxx: EDX:EAX / xxx => EAX (rem EDX)
@@ -405,6 +453,45 @@ LT:
     push $0
     cmp %eax, %edx
     setl (%esp)
+    add $4, %ecx        # past argument
+    jmp *(%ecx) 
+
+#
+# a1 a0 [LE] a1<a0 ? 1 : 0
+#
+    .global LE 
+LE:
+    pop %eax
+    pop %edx
+    push $0
+    cmp %eax, %edx
+    setle (%esp)
+    add $4, %ecx        # past argument
+    jmp *(%ecx) 
+
+#
+# a1 a0 [GT] a1<a0 ? 1 : 0
+#
+    .global GT 
+GT:
+    pop %eax
+    pop %edx
+    push $0
+    cmp %eax, %edx
+    setg (%esp)
+    add $4, %ecx        # past argument
+    jmp *(%ecx) 
+
+#
+# a1 a0 [GE] a1<a0 ? 1 : 0
+#
+    .global GE 
+GE:
+    pop %eax
+    pop %edx
+    push $0
+    cmp %eax, %edx
+    setge (%esp)
     add $4, %ecx        # past argument
     jmp *(%ecx) 
 
