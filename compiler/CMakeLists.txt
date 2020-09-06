@@ -6,3 +6,4 @@ add_executable(bc bif.c bc.c lex.c)
 add_executable(ba ba.c)
 
 install(TARGETS b bc ba DESTINATION bin)
+install(FILES blink DESTINATION share/b)

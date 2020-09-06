@@ -13,13 +13,18 @@ struct linkobj {
     int remove;
 };
 
+static const char *r0lib = "lib/libb0.a";
 static const char *rtlib = "lib/libbrt.a";
+static const char *linkscript = "share/b/blink";
+
+static char *sysroot;
 static struct linkobj *linkhead, *linktail;
 static const char *bccmd;
 static const char *bacmd;
 static const char *ascmd;
 static const char *ldcmd;
 static int debug = 0;
+static int listing = 0;
 static int packrat = 0;   // don't delete any intermediate files
 static int verbose = 0;
 
@@ -50,14 +55,15 @@ main(int argc, char **argv)
     int ch, i, rc, files = 0, bfiles = 0;
     char *fn, *out;
     struct linkobj *lobj;
-    char *sysroot = findfile(rundir(argv[0]), rtlib);
+
+    sysroot = findfile(rundir(argv[0]), rtlib);
 
     bccmd = fqcommand(sysroot, "bin/bc");
     bacmd = fqcommand(sysroot, "bin/ba");
     ascmd = fqcommand(rundir("as"), "as");
     ldcmd = fqcommand(rundir("ld"), "ld");
 
-    while ((ch = getopt(argc, argv, "cgo:ps:v")) != -1) {
+    while ((ch = getopt(argc, argv, "cglo:ps:v")) != -1) {
         switch (ch) {
         case 'c':
             runld = 0;
@@ -65,6 +71,10 @@ main(int argc, char **argv)
 
         case 'g':
             debug = 1;
+            break;
+
+        case 'l':
+            listing = 1;
             break;
 
         case 'o':
@@ -126,6 +136,8 @@ main(int argc, char **argv)
         return 1;
     }
 
+    addobj(pathlcat(sysroot, -1, r0lib), 0);
+
     for (i = optind, rc = 0; i < argc; i++) {
         fn = argv[i];
         if (isext(fn, "b")) {
@@ -176,6 +188,7 @@ void
 usage(void)
 {
     fprintf(stderr, "b: -c -v -g -s sysroot -o outfile srcfile [srcfile ...]\n");    
+    exit(1);
 }
 
 // compile the given b file
@@ -186,7 +199,10 @@ compile(const char *fn, const char *out)
     int l, rc;
     char *ifile = replext(out, "i");
     char *sfile = replext(out, "s");
+    char *lstfile = NULL;
+    char *lstflag = NULL;
     char *cmd;
+
 
     cmd = aprintf("%s -o %s %s", bccmd, ifile, fn);
     veprintf("%s\n", cmd);
@@ -211,7 +227,18 @@ compile(const char *fn, const char *out)
         return 0;
     }
 
-    cmd = aprintf("%s %s -o %s -march=i386 --32 %s", ascmd, debug ? "-g" : "", out, sfile);
+    if (listing) {
+        lstfile = replext(out, "lst");
+        lstflag = aprintf("-a=%s ", lstfile);
+        free(lstfile);
+    }
+
+    cmd = aprintf("%s %s%s-o %s -march=i386 --32 %s", 
+        ascmd, 
+        debug ? "-g " : "",
+        lstflag ? lstflag : "",
+        out, 
+        sfile);
     veprintf("%s\n", cmd);
     rc = system(cmd);
     free(cmd);
@@ -220,6 +247,10 @@ compile(const char *fn, const char *out)
         veprintf("removing %s\n", sfile);
         remove(sfile);
     }
+
+    free(ifile);
+    free(sfile);
+    free(lstflag);
     
     return rc == 0; 
 }
@@ -233,6 +264,9 @@ ld(const char *out)
     struct linkobj *obj;
     char *cmd;
     char *names;
+    char *mfile = NULL;
+    char *mflag = NULL;
+    char *blink = NULL;
     
     if (linkhead == NULL) {
         fprintf(stderr, "b: nothing to link\n");
@@ -253,12 +287,35 @@ ld(const char *out)
         names[l++] = obj->next ? ' ' : '\0';
     }
 
-    cmd = aprintf("%s -m elf_i386 -o %s %s", ldcmd, out, names);
-    free(names);
+    if (listing) {
+        mfile = replext(out, "map");
+        mflag = aprintf("-Map %s ", mfile);
+        free(mfile);
+    }
+
+    blink = pathlcat(sysroot, -1, linkscript);
+
+#if 1
+    cmd = aprintf("%s %s-m elf_i386 -o %s -T %s %s", 
+            ldcmd, 
+            mflag ? mflag : "",
+            out, 
+            blink,
+            names);
+#else
+    cmd = aprintf("%s %s-m elf_i386 -o %s %s", 
+            ldcmd, 
+            mflag ? mflag : "",
+            out, 
+            names);
+#endif
     veprintf("%s\n", cmd);
 
     rc = system(cmd);
+    free(names);
     free(cmd);
+    free(mflag);
+    free(blink);
 
     return rc == 0;
 }

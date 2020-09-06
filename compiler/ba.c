@@ -163,6 +163,10 @@ wrdata(void)
         return;
     } 
     
+    if (ndata) {
+        fprintf(fout, "    .data\n");
+    }
+
     for (i = 0; i < ndata; i++) {
         rdname(name);
 
@@ -193,10 +197,21 @@ wrdata(void)
         }
 
         if (fl & BIFVEC) {
+            if (vecsize > ninit) {
+                fprintf(fout, "    .align 4\n");
+                fprintf(fout, "    .rept %d\n", vecsize - ninit);
+                fprintf(fout, "    .int 0\n");
+                fprintf(fout, "    .endr\n");
+            }
             wrname(name);
-            fprintf(fout, "    .int .-4\n");
+            fprintf(fout, "    .int .-%d\n", vecsize * 4);
+
+            fprintf(fout, "    .section .vinit\n");
+            fprintf(fout, "    .int _%s\n", name);
+            fprintf(fout, "    .data\n");
         }
     }
+
 }
 
 // TODO could share this w/ bc
@@ -290,6 +305,10 @@ wrcode(void)
     char fn[MAXNAM + 1], name[MAXNAM + 1];
     const char *opcode;
     char *extrns;
+
+    if (ncode) {
+        fprintf(fout, "    .text\n");
+    }
 
     for (i = 0; i < ncode; i++) {
         rdname(fn);
@@ -391,7 +410,9 @@ wrstrp()
         return;
     }
 
-    fprintf(fout, "    .local strp\nstrp:\n");
+    fprintf(fout, "    .data\n");
+    fprintf(fout, "    .local strp\n");
+    fprintf(fout, "strp:\n");
 
     for (i = 0; i < n; i += perline) {
         fprintf(fout, "    .byte ");
@@ -412,7 +433,6 @@ void
 wrheader(void)
 {
     fprintf(fout, "# %s\n", srcfname);
-    fprintf(fout, "    .text\n\n");
 }
 
 static void

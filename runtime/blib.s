@@ -299,8 +299,8 @@ ADD:
 SUB:
     pop %eax            # rhs
     pop %edx            # lhs
-    sub %edx, %eax
-    push %eax
+    sub %eax, %edx
+    push %edx
     add $4, %ecx        # past argument
     jmp *(%ecx) 
 

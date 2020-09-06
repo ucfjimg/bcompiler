@@ -558,6 +558,7 @@ stmtgoto(struct codefrag *prog)
         sym->sc = INTERNAL;
         sym->type = LABEL;
         sym->forward = 1;
+        sym->labpc = nextlab++;
         break;
 
     default:
