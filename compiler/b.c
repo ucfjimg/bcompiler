@@ -13,7 +13,6 @@ struct linkobj {
     int remove;
 };
 
-static const char *r0lib = "lib/libb0.a";
 static const char *rtlib = "lib/libbrt.a";
 static const char *linkscript = "share/b/blink";
 
@@ -136,8 +135,6 @@ main(int argc, char **argv)
         return 1;
     }
 
-    addobj(pathlcat(sysroot, -1, r0lib), 0);
-
     for (i = optind, rc = 0; i < argc; i++) {
         fn = argv[i];
         if (isext(fn, "b")) {
@@ -229,7 +226,7 @@ compile(const char *fn, const char *out)
 
     if (listing) {
         lstfile = replext(out, "lst");
-        lstflag = aprintf("-a=%s ", lstfile);
+        lstflag = aprintf("-aghlms=%s ", lstfile);
         free(lstfile);
     }
 

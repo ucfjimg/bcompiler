@@ -146,6 +146,17 @@ mksname(const char *srcname)
     return sname;
 }
 
+// Insert a pointer initializer 
+//
+void
+pinit()
+{
+    fprintf(fout, "0:\n");
+    fprintf(fout, "    .pushsection .pinit, \"aw\", @progbits\n");
+    fprintf(fout, "    .int 0b-4\n");
+    fprintf(fout, "    .popsection\n");
+}
+
 // write out data declarations
 //
 void
@@ -155,6 +166,7 @@ wrdata(void)
     int fl, type;
     int ndata = RDINT();
     int ninit;
+    char uname[MAXNAM+1];
     char name[MAXNAM];
     char exname[MAXNAM];
     int vecsize;
@@ -172,7 +184,10 @@ wrdata(void)
 
         fl = RDBYTE();
         if (fl & BIFVEC) {
+            sprintf(uname, "_%s", name);
+            wrname(uname);
             vecsize = RDINT();
+
         } else {
             wrname(name);
         }
@@ -183,7 +198,8 @@ wrdata(void)
             switch (type) {
             case BIFINAM:
                 rdname(exname);
-                fprintf(fout, "    .int .%s\n", exname);
+                fprintf(fout, "    .int _%s\n", exname);
+                pinit();
                 break;
 
             case BIFIINT:
@@ -204,11 +220,8 @@ wrdata(void)
                 fprintf(fout, "    .endr\n");
             }
             wrname(name);
-            fprintf(fout, "    .int .-%d\n", vecsize * 4);
-
-            fprintf(fout, "    .section .vinit\n");
-            fprintf(fout, "    .int _%s\n", name);
-            fprintf(fout, "    .data\n");
+            fprintf(fout, "    .int __%s\n", name);
+            pinit();
         }
     }
 

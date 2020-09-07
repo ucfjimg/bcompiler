@@ -5,7 +5,7 @@
     .global _start
 
 _start:
-#    call dovinit    
+    call dopinit
     leal __prog, %ecx
     jmp *(%ecx)
 
@@ -20,18 +20,18 @@ __prog:
     .int CALL
 
 
-dovinit:
-    leal v0, %edi
-    leal vn, %esi
+dopinit:
+    mov $p0, %edi
+    mov $pn, %esi
 1:
     cmp %esi, %edi
     jge 2f
-    shrl (%edi)
+    mov (%edi), %eax
+    shrl $2, (%eax)
     add $4, %edi
+    jmp 1b
 2:
     ret
 
     .section .vinit
-    .global v0
-v0:
 
