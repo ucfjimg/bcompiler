@@ -8,6 +8,7 @@
 #define BIFINAM  0x00     /* initializer element is name */
 #define BIFIINT  0x01     /* initializer element is int const */
 #define BIFISTR  0x02     /* initializer element is string const */
+#define BIFIVEC  0x03     /* initializer element is a vector */
 
 struct stabent;
 extern int bifwrite(const char *fn, struct stabent *syms);

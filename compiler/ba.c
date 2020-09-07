@@ -202,6 +202,12 @@ wrdata(void)
                 pinit();
                 break;
 
+            case BIFIVEC:
+                rdname(exname);
+                fprintf(fout, "    .int __%s\n", exname);
+                pinit();
+                break;
+
             case BIFIINT:
                 fprintf(fout, "    .int %u\n", RDINT());
                 break;

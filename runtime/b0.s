@@ -6,6 +6,7 @@
 
 _start:
     call dopinit
+main:
     leal __prog, %ecx
     jmp *(%ecx)
 

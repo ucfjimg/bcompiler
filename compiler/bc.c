@@ -1119,7 +1119,7 @@ eprimary(struct codefrag *prog)
                 torval(prog);
             }
             if (expr(prog) == LVAL) {
-                //torval(prog);
+                torval(prog);
             }
             if (curtok->type == TRBRACKET) {
                 nextok();

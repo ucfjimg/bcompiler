@@ -3,7 +3,7 @@ all: \
 	cond1 cond2 cond3 cond4 cond5 \
 	func1 func2 func3 func4 func5 \
 	expr1 expr2 expr3 expr4 expr5 \
-	vec1
+	vec1 vec2 
 
 %: %.b 
 	b -pgl -o $* $< ../programs/printf.b ../programs/printn.b
@@ -34,6 +34,8 @@ expr4: expr4.b
 expr5: expr5.b
 
 vec1: vec1.b
+vec2: vec2.b
+
 
 clean:
 	-rm *.i > /dev/null 2>&1

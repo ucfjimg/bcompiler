@@ -98,7 +98,7 @@ wrdata(struct stabent *syms)
 
         for (ivp = symp->ivals.head; ivp; ivp = ivp->next) {
             if (!ivp->isconst) {
-                WRBYTE(BIFINAM);
+                WRBYTE(ivp->v.name->type == VECTOR ? BIFIVEC : BIFINAM);
                 wrname(ivp->v.name->name);
             } else if (ivp->v.con.strlen == INTCONST) {
                 WRBYTE(BIFIINT);
