@@ -63,6 +63,20 @@ RET:
     push %eax           # return value
     jmp *(%ecx)         # continue back in caller
 
+
+#
+# Initialize the base address of a vector on the stack
+#
+    .global AVINIT
+AVINIT:
+    mov 4(%ecx), %eax   # stack offset of base of vector
+    add %ebp, %eax      # eax -> vector pointer
+    leal 4(%eax), %edx  # edx -> base of vector
+    shr $2, %edx        # edx is adjusted pointer
+    mov %edx, (%eax)    # save adjusted vector
+    add $8, %ecx
+    jmp *(%ecx)
+
 ################################################################################
 #
 # control transfer
