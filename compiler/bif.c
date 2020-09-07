@@ -289,13 +289,16 @@ strpadd(const char *str, int len)
 {
     int newsize = strpsize ? strpsize : 16;
     char *newp;
-    int offset;
+    int need;
 
     if (err) {
         return EOF;
     }
 
-    while (strpnext + len > newsize) {
+    strpnext = ((strpnext + INTSIZE - 1) / INTSIZE) * INTSIZE;
+    need = strpnext + len;
+ 
+    while (need > newsize) {
         newsize *= 2;
     }
 
@@ -311,11 +314,11 @@ strpadd(const char *str, int len)
         strpool = newp;
     }
 
-    offset = strpnext;
     memcpy(strpool + strpnext, str, len);
+    
     strpnext += len;
 
-    return offset;
+    return strpnext - len;
 }
 
 // Write the string pool

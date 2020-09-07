@@ -434,6 +434,7 @@ wrstrp()
 
     fprintf(fout, "    .data\n");
     fprintf(fout, "    .local strp\n");
+    fprintf(fout, "    .align 4\n");
     fprintf(fout, "strp:\n");
 
     for (i = 0; i < n; i += perline) {
