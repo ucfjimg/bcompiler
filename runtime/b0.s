@@ -14,10 +14,12 @@ main:
 __prog:
     .int ENTER, 0
     .int PSHSYM, _main
+    .int DEREF
     .int CALL
     .int POP
     .int PSHCON, 0
     .int PSHSYM, _exit
+    .int DEREF
     .int CALL
 
 

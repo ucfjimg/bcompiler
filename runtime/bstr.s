@@ -6,6 +6,11 @@
     .align 4
     .global _char
 _char:
+    .int .+4
+0:
+    .pushsection .pinit, "aw", @progbits
+    .int 0b-4
+    .popsection
     .int NCALL, __char
     .int RET
 

@@ -1070,7 +1070,7 @@ eprimary(struct codefrag *prog)
             cn->arg.target = sym;
             cnpush(prog, cn);
             nextok();
-            type = sym->type == FUNC ? RVAL : LVAL;
+            type = LVAL;
         } else {
             err(__LINE__,curtok->line, "'%s' is not defined", curtok->val.name);
             nextok();
@@ -1105,6 +1105,9 @@ eprimary(struct codefrag *prog)
             args = ecall(prog);
             
             pushopn(prog, ODUPN, args);     // fn argn argn-1 ... arg0 fn 
+            if (type == LVAL) {
+                torval(prog);
+            }
             pushop(prog, OCALL);            // fn argn argn-1 ... arg0 retval 
             pushop(prog, OPOPT);            // fn argn argn-1 ... arg0 ; retval in T
             pushopn(prog, OPOPN, args+1);   // ; retval in T

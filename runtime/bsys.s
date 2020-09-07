@@ -6,6 +6,11 @@
     .align 4
     .global _exit
 _exit:
+    .int .+4
+0:
+    .pushsection .pinit, "aw", @progbits
+    .int 0b-4
+    .popsection
     .int NCALL, exit
 
 
@@ -18,6 +23,11 @@ exit:
     .align 4
     .global _putchar
 _putchar:
+    .int .+4
+0:
+    .pushsection .pinit, "aw", @progbits
+    .int 0b-4
+    .popsection
     .int NCALL, putchar
     .int RET
 
@@ -43,6 +53,11 @@ putchar:
     .align 4
     .global _debug
 _debug:
+    .int .+4
+0:
+    .pushsection .pinit, "aw", @progbits
+    .int 0b-4
+    .popsection
     .int NCALL, debug
     .int RET
 

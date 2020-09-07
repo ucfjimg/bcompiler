@@ -332,6 +332,9 @@ wrcode(void)
     for (i = 0; i < ncode; i++) {
         rdname(fn);
         wrname(fn);
+
+        fprintf(fout, "    .int .+4\n");
+        pinit();
         
         // TODO don't really need this?
         nex = RDINT();
