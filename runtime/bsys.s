@@ -50,19 +50,3 @@ putchar:
     push %eax
     jmp *(%ecx)
 
-    .align 4
-    .global _debug
-_debug:
-    .int .+4
-0:
-    .pushsection .pinit, "aw", @progbits
-    .int 0b-4
-    .popsection
-    .int NCALL, debug
-    .int RET
-
-debug:
-    int $3
-    push $0
-    jmp *(%ecx)
-

@@ -101,9 +101,9 @@ BZ:
     add $4, %ecx        
     pop %edx            # condition
     or %edx, %edx       # is condition zero?
-    jnz bzno            # nope
+    jnz 1f              # nope
     mov %eax, %ecx      # yes, jump to target
-bzno:
+1:
     jmp *(%ecx)
     
 #
@@ -114,10 +114,10 @@ CASE:
     mov 4(%ecx), %eax   # case value
     mov 8(%ecx), %edx   # start of routine
     cmp %eax, (%esp)    # disc is on top of stack
-    je casego           # a match!
+    je 1f               # a match!
     add $12, %ecx       # skip args
     jmp *(%ecx)         # and keep going
-casego:
+1:
     pop %eax            # pop disc off stack
     mov %edx, %ecx      # new instruction ptr
     jmp *(%ecx)
@@ -132,9 +132,8 @@ casego:
 #
     .global PSHCON
 PSHCON:
-    add $4, %ecx        # -> arg (stack space)
-    push (%ecx)
-    add $4, %ecx        
+    push 4(%ecx)
+    add $8, %ecx        
     jmp *(%ecx)
 
 #
@@ -143,11 +142,10 @@ PSHCON:
 #
     .global PSHSYM
 PSHSYM:
-    add $4, %ecx        # -> arg (stack space)
-    movl (%ecx), %eax
+    movl 4(%ecx), %eax
     shr $2, %eax        # address to object index
     push %eax
-    add $4, %ecx       
+    add $8, %ecx       
     jmp *(%ecx)
 
 #
@@ -156,12 +154,11 @@ PSHSYM:
 #
     .global PSHAUTO
 PSHAUTO:
-    add $4, %ecx        # -> arg (stack space)
-    movl (%ecx), %eax
+    movl 4(%ecx), %eax
     add %ebp, %eax
     shr $2, %eax
     push %eax
-    add $4, %ecx        
+    add $8, %ecx        
     jmp *(%ecx)
 
 #
@@ -240,11 +237,10 @@ DUP:
 #
     .global DUPN
 DUPN:
-    add $4, %ecx       
-    mov (%ecx), %esi
+    mov 4(%ecx), %esi
     mov (%esp,%esi), %eax
     push %eax
-    add $4, %ecx       
+    add $8, %ecx       
     jmp *(%ecx)
 
 #
@@ -261,10 +257,9 @@ POP:
 #
     .global POPN
 POPN:
-    add $4, %ecx        # past the instruction
-    mov (%ecx), %eax    # eax is aligned bytes to pop
+    mov 4(%ecx), %eax   # eax is aligned bytes to pop
     add %eax, %esp      # do the pop
-    add $4, %ecx        # past the argument
+    add $8, %ecx        # past the argument
     jmp *(%ecx)
 
 #
@@ -284,9 +279,8 @@ NAMDEF:
 #
     .global NCALL
 NCALL:
-    add $4, %ecx        # past the instruction
-    push (%ecx)         # entry to function
-    add $4, %ecx        # past argument
+    push 4(%ecx)        # entry to function
+    add $8, %ecx        # past argument
     ret
     
 ################################################################################

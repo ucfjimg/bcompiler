@@ -2,9 +2,9 @@
 # b startup
 #
     .text
-    .global _start
+    .global $start
 
-_start:
+$start:
     call dopinit
 main:
     leal __prog, %ecx
@@ -35,6 +35,4 @@ dopinit:
     jmp 1b
 2:
     ret
-
-    .section .vinit
 
