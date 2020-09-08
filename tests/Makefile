@@ -7,7 +7,7 @@ all: \
 	str1 str2 str3
 
 %: %.b 
-	b -pgl -o $* $< ../programs/printf.b ../programs/printn.b
+	b -pgl -o $* $<
 	./$* | diff - $*.out
 
 output1: output1.b 
