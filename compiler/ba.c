@@ -214,6 +214,7 @@ wrdata(void)
 
             case BIFISTR:
                 fprintf(fout, "    .int strp + %u\n", RDINT());
+                pinit();
                 break;
             }
         }
@@ -391,7 +392,7 @@ wrcode(void)
             case OPSHCON:
                 if (RDBYTE()) {
                     // strcon
-                    fprintf(fout, "    .int PSHCON, strp + %u\n", RDINT());
+                    fprintf(fout, "    .int PSHSYM, strp + %u\n", RDINT());
                 } else {
                     // intcon
                     fprintf(fout, "    .int PSHCON, %u\n", RDINT());

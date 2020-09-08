@@ -1,5 +1,7 @@
 #include "lex.h"
 
+#include "b.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -146,7 +148,7 @@ charcon(struct token *t)
 
     advraw();
 
-    for (i = 0; i < 2; i++, advraw()) {
+    for (i = 0; i < INTSIZE; i++, advraw()) {
         if (currch == EOF) {
             err(__LINE__,line, "unterminated char constant");
             break;
@@ -167,7 +169,7 @@ charcon(struct token *t)
         val = (val << 8) | (currch & 0xff);
     }
 
-    if (i == 2 && currch != '\'') {
+    if (i == INTSIZE && currch != '\'') {
         err(__LINE__,line, "unterminated char constant");
         return;
     }
