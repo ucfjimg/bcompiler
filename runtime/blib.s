@@ -1,6 +1,54 @@
 #
 # B threaded opcodes
 #
+
+################################################################################
+#
+# Register usage
+#
+# ECX - Instruction pointer into current routine. At the start of an instruction,
+#       ecx points to a function pointer for the threaded opcode to execute.
+#       Instruction encoded operands follow the threaded opcode address and are
+#       accessed relative to ecx. Every threaded opcode should end by incrementing
+#       ecx past the instruction and executing jmp *(%ecx), which will jump to
+#       the start of the next opcode.
+#
+# EBX - The temporary register. The opcodes PUSHT and POPT transfer the top of the
+#       stack into EBX and back, to aid in stack juggling. Other opcode 
+#       implementations should therefore not use EBX.
+#
+# EBP - Frame pointer. EBP points to the activation record for the current function
+#       call. Arguments to the function are at EBP+8, EBP+12, etc. The leftmost
+#       argument is the last argument pushed. EBP+4 contains the return address
+#       (the value for ECX of the next instruction to execute upon return.) 
+#       EBP+0 contains the frame pointer of the previous function invocation.
+#       Negative offsets contain space allocated for auto variables.
+#
+# Pointers
+#
+#   B is a typeless language. All objects -- integers and pointers -- are of the
+#   same size (4 bytes for x86). Vectors are a pointer to an array of words.
+#   Strings are represented as an array of words, where each element contains 
+#   4 packed characters.
+#
+#   The add and subtract operators are expected to work on pointers. Adding one
+#   to a pointer gives a pointer to the next word. Subtracting two pointers gives
+#   the number of words between them. As B is typeless, there is no hint at 
+#   compilation that an operand is an address or an integer. (The users is also
+#   free to do such nonsenical things as adding two pointers, with no error
+#   given.) In order for this to work, a pointer cannot be equivalent to an 
+#   address. Instead, the pointer is the address, shifted right by the number of
+#   bits needed to divide by the native word size (2 bits for 4 bytes on x86.)
+#   All addresses must therefore be aligned on 4 byte boundaries.
+#
+#   Pointers in extrn data, and function pointers, are shifted during dopinit
+#   before main() is called. Pointers loaded during the course of program 
+#   execution are shifted right when loaded, and again to the left before use.
+#
+# This architecture is very similar to that described in the original B language 
+# memo for the PDP-11 implementation.
+#
+
     .text
 
 
