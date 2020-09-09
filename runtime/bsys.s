@@ -6,10 +6,11 @@
 SYSEXIT=1
 SYSFORK=2
 SYSREAD=3
-SYSWRIT=4
+SYSWRITE=4
 SYSBRK=45
 SYSOPEN=5
-SYSCLOS=6
+SYSCLOSE=6
+SYSCREAT=8
 
 # standard descriptors
 STDIN=0
@@ -20,44 +21,46 @@ STDERR=2
 RDONLY=0
 WRONLY=1
 
-    .text
 
+#
+# mkncall - create a threaded interpreter stub for a native code function
+#
+    .macro mkncall name
     .align 4
-    .global _exit
-_exit:
+    .global _\name
+_\name :
     .int .+4
 0:
     .pushsection .pinit, "aw", @progbits
     .int 0b-4
     .popsection
-    .int NCALL, exit
+    .int NCALL, \name
+    .int RET
+    .local \name
+\name :
+    .endm
+    
+    .text
 
-
-    .local exit
-exit:
+#
+# exit(rc)
+# exits the process with return code rc
+#
+    mkncall exit
     mov 4(%esp), %ebx   # return address
     mov $SYSEXIT, %eax  # exit syscall
     int $0x80
     
-    .align 4
-    .global _putchar
-_putchar:
-    .int .+4
-0:
-    .pushsection .pinit, "aw", @progbits
-    .int 0b-4
-    .popsection
-    .int NCALL, putchar
-    .int RET
-
-    .local putchar
-
-putchar:
+#
+# putchar(ch)
+# writes the character ch to the console
+#
+    mkncall putchar
     push %ecx
     push %ebx
     push 12(%esp)
 
-    mov $SYSWRIT, %eax  # write system
+    mov $SYSWRITE, %eax # write syscal write syscall 
     mov $STDOUT, %ebx   # stdout
     mov %esp, %ecx      # buffer to write
     mov $1, %edx        # bytes to write
@@ -69,25 +72,17 @@ putchar:
     push %eax
     jmp *(%ecx)
 
-    .align 4
-    .global _getchar
-_getchar:
-    .int .+4
-0:
-    .pushsection .pinit, "aw", @progbits
-    .int 0b-4
-    .popsection
-    .int NCALL, getchar
-    .int RET
-
-    .local getchar
-
-getchar:
+#
+# getchar() 
+# reads a character from the console and returns it, or '*e' on end of
+# file or error
+#
+    mkncall getchar
     push %ecx
     push %ebx
     push $0
 
-    mov $SYSREAD, %eax  # write system
+    mov $SYSREAD, %eax  # read syscall 
     mov $STDOUT, %ebx   # stdout
     mov %esp, %ecx      # buffer to read
     mov $1, %edx        # bytes to read
@@ -103,18 +98,12 @@ getchar:
     jmp *(%ecx)
 
 
-    .align 4
-    .global _brk
-_brk:
-    .int .+4
-0:
-    .pushsection .pinit, "aw", @progbits
-    .int 0b-4
-    .popsection
-    .int NCALL, brk
-    .int RET
-
-brk:
+#
+# brk(fence)     NOT IN ORIGINAL STDLIB
+# sets the memory fence to address 'fence', if possible; returns the
+# new fence or a negative number on error.
+#
+    mkncall brk
     push %ecx
     push %ebx
     mov 12(%esp), %ebx
@@ -127,18 +116,13 @@ brk:
     push %eax
     jmp *(%ecx)
 
-    .align 4
-    .global _open
-_open:
-    .int .+4
-0:
-    .pushsection .pinit, "aw", @progbits
-    .int 0b-4
-    .popsection
-    .int NCALL, open 
-    .int RET
-
-open:
+#
+# open(fname, rdwr)
+# opens an existing file for read (if rdwr == 0) or write
+# (if rdwr != 0). returns the file descriptor, or a negative
+# number on error.
+#
+    mkncall open
     push %ecx
     push %ebx
     mov $SYSOPEN, %eax
@@ -158,38 +142,46 @@ open:
     push %eax
     jmp *(%ecx)
 
-    .align 4
-    .global _close
-_close:
-    .int .+4
-0:
-    .pushsection .pinit, "aw", @progbits
-    .int 0b-4
-    .popsection
-    .int NCALL, close 
-    .int RET
-
-close:
+#
+# creat(fname, mode)
+# creates a new file an opens in for write. if the file exists, it is truncated.
+# 'mode' specifies the mode bits. returns a file descriptor on success or 
+# a negative number on error.
+#
+    mkncall creat
+    push %ecx
     push %ebx
-    mov $SYSCLOS, %eax
+    mov $SYSCREAT, %eax
+    mov 12(%esp), %ebx
+    shl $2, %ebx
+    call scstr
+    mov 16(%esp), %ecx
+    int $0x80
+    pop %ebx
+    pop %ecx
+    push %eax
+    jmp *(%ecx)
+
+#
+# close(fd)
+# closes the given file descriptor. returns on success or a negative
+# number on failure.
+#
+    mkncall close
+    push %ebx
+    mov $SYSCLOSE, %eax
     mov 8(%esp), %ebx
     int $0x80
     pop %ebx
     push %eax
     jmp *(%ecx)
 
-    .align 4
-    .global _read
-_read:
-    .int .+4
-0:
-    .pushsection .pinit, "aw", @progbits
-    .int 0b-4
-    .popsection
-    .int NCALL, read 
-    .int RET
-
-read:
+#
+# read(fd, buffer,size)
+# read 'size' bytes from file descriptor 'fd' into vector 'buffer'. returns
+# the number of bytes read, or a negative number on error.
+#
+    mkncall read
     push %ecx
     push %ebx
     mov $SYSREAD, %eax
@@ -202,6 +194,25 @@ read:
     pop %ecx
     push %eax
     jmp *(%ecx)
+
+#
+# write(fd, buffer,size)
+# write 'size' bytes to file descriptor 'fd' from vector 'buffer'. returns
+# the number of bytes written, or a negative number on error.
+#
+    push %ecx
+    push %ebx
+    mov $SYSWRITE, %eax
+    mov 12(%esp), %ebx
+    mov 16(%esp), %ecx
+    shl $2, %ecx
+    mov 20(%esp), %edx
+    int $0x80
+    pop %ebx
+    pop %ecx
+    push %eax
+    jmp *(%ecx)
+
 
 #
 # Convert B strings to nul-terminated strings (temporarily) for 

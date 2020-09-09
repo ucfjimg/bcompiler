@@ -3,7 +3,7 @@ line[20];
 
 main()
 {
-    extrn argv, printf, open, close, read, lchar;
+    extrn argv, printf, open, close, read, lchar, creat, write;
     auto i, fd;
 
     if (argv[0] > 1) {
@@ -16,4 +16,8 @@ main()
             close(fd);
         }
     }
+
+    fd = creat("foo.txt", 0666);
+    write(fd, "hello, world!*n", 14);
+    close(fd);
 }
