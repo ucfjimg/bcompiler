@@ -7,10 +7,14 @@ SYSEXIT=1
 SYSFORK=2
 SYSREAD=3
 SYSWRITE=4
-SYSBRK=45
 SYSOPEN=5
 SYSCLOSE=6
+SYSWAIT=7
 SYSCREAT=8
+SYSCHDIR=12
+SYSCHMOD=15
+SYSCHOWN=16
+SYSBRK=45
 
 # standard descriptors
 STDIN=0
@@ -200,6 +204,7 @@ _\name :
 # write 'size' bytes to file descriptor 'fd' from vector 'buffer'. returns
 # the number of bytes written, or a negative number on error.
 #
+    mkncall write
     push %ecx
     push %ebx
     mov $SYSWRITE, %eax
@@ -213,6 +218,91 @@ _\name :
     push %eax
     jmp *(%ecx)
 
+#
+# chdir(dir)
+# change the process current directory to 'dir'. Returns 0 on success
+# or a negative number on error.
+#
+    mkncall chdir
+    push %ebx
+    mov $SYSCHDIR, %eax
+    mov 8(%esp), %ebx
+    shl $2, %ebx
+    call scstr
+    int $0x80
+    pop %ebx
+    push %eax
+    jmp *(%ecx)
+
+#
+# chmod(path, mode)
+# change the mode bits for the given inode. returns 0 on success or a
+# negative numer on failure
+#
+    mkncall chmod
+    push %ebx
+    push %ecx
+    mov $SYSCHMOD, %eax
+    mov 12(%esp), %ebx
+    mov 16(%esp), %ecx
+    shl $2, %ebx
+    call scstr
+    int $0x80
+    pop %ecx
+    pop %ebx
+    push %eax
+    jmp *(%ecx)
+
+#
+# chown(path, onwer)
+# change the owner of the given inode to 'owner', which is a uid.
+# return negative on failure.
+#
+    mkncall chown
+    push %ebx
+    push %ecx
+    mov $SYSCHOWN, %eax
+    mov 12(%esp), %ebx
+    mov 16(%esp), %ecx
+    shl $2, %ebx
+    call scstr
+    mov $-1, %edx       # lchown expects a gid_t in EDX; -1 
+                        # means ignore it.
+    int $0x80
+    pop %ecx
+    pop %ebx
+    push %eax
+    jmp *(%ecx)
+
+#
+# fork()
+# split the process in two. in the original (parent) process, returns
+# the pid of the child, or a negative number on failure. on success,
+# returns 0 in the new child process.
+#
+    mkncall fork
+    mov $SYSFORK, %eax
+    int $0x80
+    push %eax
+    jmp *(%ecx)
+
+#
+# wait()
+# wait for any child process to exit and return that child's pid.
+# returns -1 on error.
+#
+    mkncall wait
+    push %ecx
+    push %ebx
+    mov $SYSWAIT, %eax
+    mov $-1, %ebx       # -1 - wait for any child
+    xor %ecx, %ecx      # NULL for status pointer
+    xor %edx, %edx      # no option flags
+    int $0x80
+    pop %ebx
+    pop %ecx
+    push %eax
+    jmp *(%ecx)
 
 #
 # Convert B strings to nul-terminated strings (temporarily) for 
