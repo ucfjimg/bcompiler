@@ -36,6 +36,7 @@ meminit:
 
     .data
     .global _argv
+    .align 4
 _argv:
     .int    0
     .text

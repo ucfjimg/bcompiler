@@ -8,11 +8,17 @@ SYSFORK=2
 SYSREAD=3
 SYSWRIT=4
 SYSBRK=45
+SYSOPEN=5
+SYSCLOS=6
 
 # standard descriptors
 STDIN=0
 STDOUT=1
 STDERR=2
+
+# file open flags
+RDONLY=0
+WRONLY=1
 
     .text
 
@@ -120,5 +126,102 @@ brk:
     pop %ebx
     push %eax
     jmp *(%ecx)
+
+    .align 4
+    .global _open
+_open:
+    .int .+4
+0:
+    .pushsection .pinit, "aw", @progbits
+    .int 0b-4
+    .popsection
+    .int NCALL, open 
+    .int RET
+
+open:
+    push %ecx
+    push %ebx
+    mov $SYSOPEN, %eax
+    mov 12(%esp), %ebx
+    shl $2, %ebx
+    mov 16(%esp), %ecx
+    or %ecx, %ecx           # NB 0 = RDONLY
+    jz 1f
+    mov $WRONLY, %ecx        
+1:
+    xor %edx, %edx
+    call scstr
+    int $0x80
+    movb $0xff, (%edi)
+    pop %ebx
+    pop %ecx
+    push %eax
+    jmp *(%ecx)
+
+    .align 4
+    .global _close
+_close:
+    .int .+4
+0:
+    .pushsection .pinit, "aw", @progbits
+    .int 0b-4
+    .popsection
+    .int NCALL, close 
+    .int RET
+
+close:
+    push %ebx
+    mov $SYSCLOS, %eax
+    mov 8(%esp), %ebx
+    int $0x80
+    pop %ebx
+    push %eax
+    jmp *(%ecx)
+
+    .align 4
+    .global _read
+_read:
+    .int .+4
+0:
+    .pushsection .pinit, "aw", @progbits
+    .int 0b-4
+    .popsection
+    .int NCALL, read 
+    .int RET
+
+read:
+    push %ecx
+    push %ebx
+    mov $SYSREAD, %eax
+    mov 12(%esp), %ebx
+    mov 16(%esp), %ecx
+    shl $2, %ecx
+    mov 20(%esp), %edx
+    int $0x80
+    pop %ebx
+    pop %ecx
+    push %eax
+    jmp *(%ecx)
+
+#
+# Convert B strings to nul-terminated strings (temporarily) for 
+# system calls. Takes the original pointer in ebx; returns
+# with the string in place nul terminated and edi pointing to
+# where to replace the *e when done.
+#
+    .local scstr
+scstr:
+    push %ecx           # save regs
+    push %eax
+    mov %ebx, %edi
+    mov $-1, %ecx       # scan count (all of memory)
+    cld
+    mov $0xff, %al      # *e character
+    repne scasb         # esi -> just past it
+    dec %edi            # -> nul
+    movb $0, (%edi)
+    pop %eax
+    pop %ecx
+    ret
 
 

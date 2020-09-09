@@ -6,6 +6,7 @@ tags
 a.out
 *.icode
 *.a
+*.map
 
 # while debugging
 runtime/hello.s
