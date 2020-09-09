@@ -7,6 +7,7 @@ SYSEXIT=1
 SYSFORK=2
 SYSREAD=3
 SYSWRIT=4
+SYSBRK=45
 
 # standard descriptors
 STDIN=0
@@ -92,6 +93,31 @@ getchar:
     pop %eax
     pop %ebx
     pop %ecx
+    push %eax
+    jmp *(%ecx)
+
+
+    .align 4
+    .global _brk
+_brk:
+    .int .+4
+0:
+    .pushsection .pinit, "aw", @progbits
+    .int 0b-4
+    .popsection
+    .int NCALL, brk
+    .int RET
+
+brk:
+    push %ecx
+    push %ebx
+    mov 12(%esp), %ebx
+
+    mov $SYSBRK, %eax
+    int $0x80
+    
+    pop %ecx
+    pop %ebx
     push %eax
     jmp *(%ecx)
 
