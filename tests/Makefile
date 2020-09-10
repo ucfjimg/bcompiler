@@ -1,7 +1,7 @@
 all: \
 	output1 output2 output3 output4 output5 \
 	cond1 cond2 cond3 cond4 cond5 \
-	func1 func2 func3 func4 func5 func6 \
+	func1 func2 func3 func4 func5 func6 func7 \
 	expr1 expr2 expr3 expr4 expr5 \
 	vec1 vec2 vec3 vec4 vec5 vec6 \
 	str1 str2 str3
@@ -28,6 +28,7 @@ func3: func3.b
 func4: func4.b
 func5: func5.b
 func6: func6.b
+func7: func7.b
 
 expr1: expr1.b
 expr2: expr2.b

@@ -741,7 +741,10 @@ stmtreturn(struct codefrag *prog)
     }
     nextok();
 
-    expr(prog);
+    if (expr(prog) == LVAL) {
+        torval(prog);
+    }
+
     pushbr(prog, OJMP, retlabel);
 
     if (curtok->type != TRPAREN) {
