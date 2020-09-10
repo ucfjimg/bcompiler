@@ -11,9 +11,16 @@ SYSOPEN=5
 SYSCLOSE=6
 SYSWAIT=7
 SYSCREAT=8
+SYSLINK=9
+SYSUNLINK=10
+SYSEXECVE=11
 SYSCHDIR=12
 SYSCHMOD=15
 SYSCHOWN=16
+SYSSEEK=19
+SYSSETUID=23
+SYSGETUID=24
+SYSMKDIR=39
 SYSBRK=45
 
 # standard descriptors
@@ -200,6 +207,28 @@ _\name :
     jmp *(%ecx)
 
 #
+# seek(fd, offset, pos)
+# move the file pointer of fd. if pos = 0, offset is relative to the start
+# of file. if pos = 1, it is relative to the current position. if pos = 2,
+# it is relative to the end.
+# 
+# on success, returns the new position from the start of the file; a 
+# negative number indicates an error.
+#
+    mkncall seek
+    push %ecx
+    push %edx
+    mov $SYSSEEK, %eax
+    mov 12(%esp), %ebx
+    mov 16(%esp), %ecx
+    mov 20(%esp), %edx
+    int $0x80
+    pop %ebx
+    pop %ecx
+    push %eax
+    jmp *(%ecx)
+
+#
 # write(fd, buffer,size)
 # write 'size' bytes to file descriptor 'fd' from vector 'buffer'. returns
 # the number of bytes written, or a negative number on error.
@@ -254,7 +283,7 @@ _\name :
     jmp *(%ecx)
 
 #
-# chown(path, onwer)
+# chown(path, owner)
 # change the owner of the given inode to 'owner', which is a uid.
 # return negative on failure.
 #
@@ -303,6 +332,101 @@ _\name :
     pop %ecx
     push %eax
     jmp *(%ecx)
+
+#
+# getuid()
+# return the uid of the current process
+#
+    mkncall getuid
+    mov $SYSGETUID, %eax
+    int $0x80
+    push %eax
+    jmp *(%ecx)
+
+#
+# link(oldpath, newpath)
+# create a hard link newpath to oldpath. returns a negative number
+# on error.
+#
+    mkncall link
+    push %ebx
+    push %ecx
+    mov $SYSLINK, %eax
+    mov 12(%esp), %ebx
+    mov 16(%esp), %ecx
+    shl $2, %ebx
+    shl $2, %ecx
+    call scstr
+    push %ebx
+    mov %ecx, %ebx
+    call scstr
+    pop %ebx
+    int $0x80
+    pop %ecx
+    pop %ebx
+    push %eax
+    jmp *(%ecx)
+
+#
+# unlink(path)
+# remove the given link. returns a negative number on failure.
+#
+    mkncall unlink
+    push %ebx
+    mov $SYSUNLINK, %eax
+    mov 8(%esp), %ebx
+    shl $2, %ebx
+    call scstr
+    int $0x80
+    pop %ebx
+    push %eax
+    jmp *(%ecx)
+
+#
+# mkdir(path, mode)
+# create a new directory with permission bits 'mode'. returns a negative
+# number on failure.
+#
+    mkncall mkdir
+    push %ecx
+    push %ebx
+    mov $SYSMKDIR, %eax
+    mov 12(%esp), %ebx
+    shl $2, %ebx
+    call scstr
+    mov 16(%esp), %ecx
+    int $0x80
+    pop %ebx
+    pop %ecx
+    push %eax
+    jmp *(%ecx)
+
+#
+# setuid(uid)
+# sets the process uid to 'uid'. returns a negative number of failure.
+#
+    mkncall setuid 
+    push %ebx
+    mov $SYSSETUID, %eax
+    mov 8(%esp), %ebx
+    int $0x80
+    pop %ebx
+    push %eax
+    jmp *(%ecx)
+
+################################################################################
+#
+# calls which aren't implemented on Linux
+#
+
+    mkncall gtty
+    push $-1
+    jmp *(%ecx)
+
+    mkncall stty
+    push $-1
+    jmp *(%ecx)
+
 
 #
 # Convert B strings to nul-terminated strings (temporarily) for 
