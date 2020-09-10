@@ -94,7 +94,7 @@ _\name :
     push $0
 
     mov $SYSREAD, %eax  # read syscall 
-    mov $STDOUT, %ebx   # stdout
+    mov $STDIN, %ebx    # stdin
     mov %esp, %ecx      # buffer to read
     mov $1, %edx        # bytes to read
     int $0x80
