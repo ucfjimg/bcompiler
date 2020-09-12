@@ -168,6 +168,7 @@ _\name :
     call scstr
     mov 16(%esp), %ecx
     int $0x80
+    movb $0xff, (%edi)
     pop %ebx
     pop %ecx
     push %eax
@@ -259,6 +260,7 @@ _\name :
     shl $2, %ebx
     call scstr
     int $0x80
+    movb $0xff, (%edi)
     pop %ebx
     push %eax
     jmp *(%ecx)
@@ -277,6 +279,7 @@ _\name :
     shl $2, %ebx
     call scstr
     int $0x80
+    movb $0xff, (%edi)
     pop %ecx
     pop %ebx
     push %eax
@@ -295,6 +298,7 @@ _\name :
     mov 16(%esp), %ecx
     shl $2, %ebx
     call scstr
+    movb $0xff, (%edi)
     mov $-1, %edx       # lchown expects a gid_t in EDX; -1 
                         # means ignore it.
     int $0x80
@@ -357,11 +361,15 @@ _\name :
     shl $2, %ebx
     shl $2, %ecx
     call scstr
+    push %edi
     push %ebx
     mov %ecx, %ebx
     call scstr
     pop %ebx
     int $0x80
+    movb $0xff, (%edi)
+    pop %edi
+    movb $0xff, (%edi)
     pop %ecx
     pop %ebx
     push %eax
@@ -378,6 +386,7 @@ _\name :
     shl $2, %ebx
     call scstr
     int $0x80
+    movb $0xff, (%edi)
     pop %ebx
     push %eax
     jmp *(%ecx)
@@ -396,6 +405,7 @@ _\name :
     call scstr
     mov 16(%esp), %ecx
     int $0x80
+    movb $0xff, (%edi)
     pop %ebx
     pop %ecx
     push %eax
@@ -411,6 +421,59 @@ _\name :
     mov 8(%esp), %ebx
     int $0x80
     pop %ebx
+    push %eax
+    jmp *(%ecx)
+
+
+#
+# execl(prog, arg1, arg2, ..., 0)
+# replace the process with the program 'prog', with command line args
+# arg1 arg2 ...
+# never returns on success. returns a negative number on failure.
+#
+    mkncall execl
+    push %ebp
+    mov %esp, %ebp
+    push %ecx
+    push %ebx
+
+    # walk the stack, converting the pointers to native addresses
+    # and fixing end of string markers
+    #
+    push $0
+    leal 8(%ebp), %esi
+1:  mov (%esi), %ebx
+    shl $2, %ebx
+    or %ebx, %ebx
+    jz 2f
+    mov %ebx, (%esi)
+    call scstr
+    push %edi
+    add $4, %esi
+    jmp 1b
+2:
+
+    # now the args on the stack are set up as the syscall needs
+    # unless the call fails, this won't return
+    #
+    mov $SYSEXECVE, %eax
+    leal 8(%ebp), %ecx      # ecx -> arg array
+    mov  (%ecx), %ebx       # ebx -> program
+    mov envp, %edx          # environment
+    int $0x80
+    
+    # NB we only get here if execve failed.
+    # fix the strings back to B termination style
+    #
+1:  pop %edi
+    or %edi, %edi
+    jz 2f
+    movb $0xff, (%edi)
+    jmp 1b
+2:
+    pop %ebx
+    pop %ecx
+    pop %ebp
     push %eax
     jmp *(%ecx)
 
@@ -442,7 +505,7 @@ scstr:
     mov $-1, %ecx       # scan count (all of memory)
     cld
     mov $0xff, %al      # *e character
-    repne scasb         # esi -> just past it
+    repne scasb         # edi -> just past it
     dec %edi            # -> nul
     movb $0, (%edi)
     pop %eax

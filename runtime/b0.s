@@ -35,9 +35,11 @@ meminit:
     ret
 
     .data
-    .global _argv
+    .global _argv, envp
     .align 4
 _argv:
+    .int    0
+envp:
     .int    0
     .text
 #
@@ -67,6 +69,12 @@ argv:
     pop %ecx
     add %edi, %eax          # add into total
     loop 1b
+ #
+ # save off environment pointer
+ #
+    add $8, %ebp
+    mov %ebp, envp
+
  #
  # adjust the top of memory
  #
