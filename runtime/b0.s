@@ -1,6 +1,9 @@
 #
 # b startup
 #
+
+SYSBRK = 45
+
     .text
     .global $start
 
@@ -30,7 +33,9 @@ memtop:
 
     .text
 meminit:
-    mov $topmem, %eax
+    mov $SYSBRK, %eax
+    xor %ebx, %ebx
+    int $0x80
     mov %eax, memtop
     ret
 
@@ -57,16 +62,16 @@ argv:
 1:    
     add $4, %ebp            # next arg 
     mov (%ebp), %edi        # edi -> arg
-    push %ecx
     push %eax
     xor %eax, %eax          # scan for nul
+    push %ecx
     mov $-1, %ecx           # search forever
     repne scasb             # find nul
+    pop %ecx
     sub (%ebp), %edi        # length of arg in %edi
     add $3, %edi            # round up to next word
     and $0xfffffffc, %edi
     pop %eax
-    pop %ecx
     add %edi, %eax          # add into total
     loop 1b
  #
@@ -96,7 +101,6 @@ argv:
     shl $2, %ebx
     leal (%ebx, %ecx), %edi # string space
     leal 4(%esp), %edx      # pointer to orig args
-    push %ecx
     movl (%edx), %ecx
     movl %ecx, (%ebx)       # arg count
 1:
@@ -119,7 +123,6 @@ argv:
     add $3, %edi            # pad for next string
     and $0xfffffffc, %edi
     loop 1b
-    pop %ecx
     ret
 #
 # initialize addresses that need to be shifted into pointers

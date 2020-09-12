@@ -75,7 +75,7 @@ static void cfprint(struct codefrag *frag);
 
 static void ddprint(struct stabent *sym);
 
-static void err(int sline, int line, const char *fmt, ...);
+void err(int sline, int line, const char *fmt, ...);
 
 static void
 usage()

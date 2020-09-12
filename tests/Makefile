@@ -30,7 +30,7 @@ func5: func5.b
 func6: func6.b
 func7: func7.b
 
-expr1: expr1.b
+#expr1: expr1.b
 expr2: expr2.b
 expr3: expr3.b
 expr4: expr4.b

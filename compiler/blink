@@ -9,6 +9,5 @@ SECTIONS
         *(.pinit) 
         pn = .;
     }
-    topmem = .;
 }
 
