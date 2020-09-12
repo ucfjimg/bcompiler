@@ -477,6 +477,59 @@ _\name :
     push %eax
     jmp *(%ecx)
 
+#
+# execv(prog, args, count)
+# like execl but the args are in a vector
+#
+    mkncall execv
+    push %ebp
+    mov %esp, %ebp
+    push %ecx
+    push %ebx
+
+    movl 12(%ebp), %esi         # esi -> base of vector
+    shl $2, %esi                # ptr to address
+    movl 16(%ebp), %ecx         # # things in array
+    shl $2, %ecx                # # bytes
+    add %ecx, %esi              # esi -> end of vector
+    shr $2, %ecx
+    push $0                     # push terminator
+1:  add $-4, %esi               # previous arg
+    push (%esi)                 # push on stack
+    shll $2, (%esp)             # ptr to address of string
+    loop 1b                     # for all args
+    push 8(%ebp)                # 0'th arg is the program name
+    shll $2, (%esp)             # ptr to address of string
+    mov %esp, %esi              # save base of vector
+    mov %esp, %edx              # also for iteration
+2:  mov (%edx), %ebx            # get B string
+    or %ebx, %ebx               # are we done?
+    jz 1f                       # yes
+    call scstr                  # fix string
+    push %edi                   # save string fixup pointer
+    add $4, %edx                # next string
+    jmp 2b                      # keep going
+1:
+    mov $SYSEXECVE, %eax
+    mov %esi, %ecx
+    mov (%esi), %ebx
+    mov envp, %edx
+    int $0x80
+
+    # NB we only get here if we failed
+2:  cmp %esi, %esp
+    jz 1f
+    pop %edi
+    movb $0xff, (%edi)
+    jmp 2b
+1:  leal -8(%ebp), %esp
+    pop %ebx
+    pop %ecx
+    pop %ebp
+    push %eax
+    jmp *(%ecx)
+
+
 ################################################################################
 #
 # calls which aren't implemented on Linux
