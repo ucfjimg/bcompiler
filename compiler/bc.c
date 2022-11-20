@@ -672,11 +672,13 @@ stmtswitch(struct codefrag *prog)
 
     pushlbl(prog, nomatch);
     swtchstk = sw->prev;
-    free(sw);
 
     for (scase = sw->head; scase; scase = scase->next) {
         pushcase(&cases, scase->caseval, scase->label);
     }
+
+    free(sw);
+    
     pushop(&cases, OPOP);
     pushbr(&cases, OJMP, nomatch);
 
